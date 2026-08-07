@@ -9,59 +9,205 @@ is prompted before it is created.  Optionally appends a row to a phase manifest.
 from __future__ import annotations
 
 import glob
-import json
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 
 # Insert repo root so sibling imports work when run as CLI
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+# Insert this script's own directory so bare sibling-module imports (e.g.
+# `schema_validator`, matching this file's existing `from schema_validator
+# import validate_story_file as _vsf` local-import precedent) resolve
+# regardless of module import order within the test session — relying on
+# some other module (e.g. flex_build.py) to have already inserted this
+# directory as a side effect of being imported first would be fragile.
+sys.path.insert(0, str(Path(__file__).parent))
 
 import click
+
+from schema_validator import _parse_frontmatter as _pf  # noqa: PLC0415
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-# CER-167: characters/prefixes that make a value unsafe to emit as a bare
-# (unquoted) YAML scalar inside a block-sequence list item.
-_YAML_PLAIN_UNSAFE_START = (
-    '"', "'", "#", "-", "?", ":", ",", "[", "]", "{", "}",
-    "&", "*", "!", "|", ">", "%", "@", "`",
-)
+
+def _reads_back_intact(
+    value: str,
+    rendered: str,
+    *,
+    embed_doc: Callable[[str], str],
+    expected: dict,
+) -> bool:
+    """Return True iff *rendered* round-trips to *value* through the real
+    reader (``schema_validator._parse_frontmatter``), embedded via
+    *embed_doc* inside a minimal multi-key frontmatter document with a
+    *trailing* sentinel key (CER-216 — a rendering that truncates the whole
+    frontmatter block must be rejected exactly like one that corrupts the
+    item itself, so the check asserts the *entire* parsed document, given by
+    *expected*, not just the recovered value).
+
+    *embed_doc* and *expected* are the only two things that differ between
+    the block-sequence-item oracle (``_yaml_block_scalar``) and the
+    scalar-position oracle (``_yaml_scalar_field``, INFRA-413/CER-219) — the
+    embedding shape (list item under a `k:` block sequence vs. a bare
+    top-level `<key>: <rendered>` scalar). Everything else (candidate
+    generation, preference order, raise-on-no-round-trip) is one shared code
+    path, per INFRA-413 Ensures 3."""
+    doc = embed_doc(rendered)
+    try:
+        parsed = _pf(doc)
+    except Exception:
+        return False
+    return parsed == expected
+
+
+def _oracle_render(
+    value: str,
+    *,
+    embed_doc: Callable[[str], str],
+    expected: dict,
+    context: str,
+) -> str:
+    """Render *value* as a single-line YAML scalar via the shared
+    oracle-verify-or-raise design (CER-167/CER-211/CER-213/CER-214/CER-215/
+    CER-216/CER-219; INFRA-412/INFRA-413).
+
+    Oracle-based, not denylist-based (CER-214/215/216). Earlier versions of
+    this function decided bare-vs-quoted safety by hand-maintaining a
+    denylist of "unsafe" characters/prefixes
+    (``_YAML_PLAIN_UNSAFE_START``) — a description of what this project's
+    real frontmatter reader, ``schema_validator._parse_frontmatter``, does
+    on read. Each audit (CER-167, CER-211, CER-213, CER-214, CER-215,
+    CER-216, CER-219) found one more character, shape, or *field* the
+    denylist's author had not thought of, because the denylist was never
+    actually checked against the reader it was trying to describe — it
+    could always drift out of sync again. This function instead renders
+    each representable candidate form of *value* (bare, ``"``-quoted,
+    ``'``-quoted) and feeds it back through the real reader via
+    ``_reads_back_intact``, embedded (via *embed_doc*) in a minimal
+    multi-key document with a trailing sentinel key so that
+    frontmatter-*truncation* (CER-216 — a value ending in e.g. ``---`` that
+    silently drops every later key) is caught, not just item-level
+    corruption. Only a candidate whose parsed-back document is byte-identical
+    to *expected* is ever emitted. This makes the writer's correctness
+    structurally tied to the reader's actual behaviour instead of a
+    hand-maintained approximation of it: a future gap in this function is a
+    gap in the reader itself (or in the sentinel document used to detect
+    truncation), not "one more character to add to a list." A future
+    builder tempted to add a character (or field) back onto a denylist
+    here, in response to some new adversarial value, is reintroducing
+    exactly the failure mode this design closes — the fix belongs in
+    strengthening this oracle round-trip, never in resuming a denylist.
+
+    Bare is attempted only when *value* has no leading/trailing whitespace
+    and no embedded real newline: those are structurally unrepresentable as
+    a single plain scalar line regardless of what the oracle says (a
+    surrounding-whitespace-stripping or newline-splitting reader could
+    "round-trip" a pathological case by accident; this project's reader
+    does not, but the exclusion is kept as a belt-and-braces structural
+    guard, not a safety decision — the oracle is still what actually gates
+    emission). ``"``-quoted is attempted only when *value* contains no
+    ``"``; ``'``-quoted only when *value* contains no ``'``. Preference
+    order when more than one candidate round-trips: bare, then ``"``, then
+    ``'`` (preserving the pre-existing observable preference,
+    INFRA-409/CER-213's own bare-preferred test case).
+
+    *value*'s own bytes are emitted literally between quote characters when
+    quoted, with no backslash escaping of any kind — this project's reader
+    strips one matching pair of outer quote characters literally and never
+    unescapes anything, so ``json.dumps``-style escaping (the pre-CER-213
+    behaviour) corrupted any value containing a quote character, a real
+    tab, or any other backslash-escaped character on read.
+
+    When no candidate rendering round-trips — including the case where
+    *value* contains both ``"`` and ``'``, so neither quote form is
+    attemptable, or where *value* begins with ``[`` (INFRA-413/CER-219/
+    CER-220: a bracket-prefixed value never round-trips through
+    ``schema_validator._parse_frontmatter`` — it either raises
+    ``FrontmatterError`` via ``_parse_flow_sequence``'s malformed-sequence
+    checks, or, if it happens to be a well-formed flat flow sequence, is
+    silently type-confused into a ``list`` instead of staying the original
+    string, so the ``parsed == expected`` equality never holds either way —
+    no special-casing of ``[`` is needed here, the oracle rejects it on its
+    own) — this function raises ``ValueError`` naming the unrepresentable
+    value: this changes *how* unrepresentability is detected, not the fact
+    that it still raises rather than silently corrupting.
+
+    Never rejects, strips, or otherwise alters *value* itself in the cases
+    it does emit (INFRA-409 Ensures 1's forbidden proxy) — only the on-disk
+    representation changes.
+    """
+    candidates: list[str] = []
+    if value and value == value.strip() and "\n" not in value:
+        candidates.append(value)
+    if '"' not in value:
+        candidates.append(f'"{value}"')
+    if "'" not in value:
+        candidates.append(f"'{value}'")
+
+    for rendered in candidates:
+        if _reads_back_intact(value, rendered, embed_doc=embed_doc, expected=expected):
+            return rendered
+
+    if "\n" in value:
+        raise ValueError(
+            f"cannot represent {context} with an embedded newline as a "
+            f"single frontmatter line: {value!r}"
+        )
+    if '"' in value and "'" in value:
+        raise ValueError(
+            f"cannot represent {context} containing both '\"' and \"'\" — "
+            f"no single quote character in this reader's literal-strip "
+            f"scheme can wrap it: {value!r}"
+        )
+    raise ValueError(
+        f"{context} cannot round-trip through "
+        f"schema_validator._parse_frontmatter: {value!r}"
+    )
 
 
 def _yaml_block_scalar(value: str) -> str:
-    """Return *value* rendered as a single-line YAML scalar (CER-167).
-
-    Emits *value* bare when it is a "plain" scalar safe to embed unquoted in
-    a block-sequence list item (no leading indicator character, no embedded
-    ``: ``, no trailing ``:``, no embedded newline/tab, no leading/trailing
-    whitespace); otherwise emits it via ``json.dumps``, whose escaping
-    (``\\"``, ``\\\\``, ``\\n``, ``\\t``, ``\\uXXXX``, ...) is a valid subset
-    of YAML's double-quoted scalar syntax, so the result is never malformed
-    YAML and a real ``yaml.safe_load`` (or ``json.loads`` on the same quoted
-    text) recovers *value* byte-identically — including an embedded newline,
-    which is escaped as ``\\n`` rather than emitted as a literal line break.
-
-    Never rejects, strips, or otherwise alters *value* itself (INFRA-409
-    Ensures 1's forbidden proxy) — only the on-disk representation changes.
-    Does not touch the CER-092 title-quoting branch above; that branch's
-    ``#``-detection rule is for a top-level scalar (``title:``), not a
-    block-sequence list item, and is left as-is.
+    """Return *value* rendered as a single-line YAML block-sequence-item
+    scalar (CER-167/CER-211/CER-213/CER-214/CER-215/CER-216), via the
+    shared oracle-verify-or-raise design (``_oracle_render``). See
+    ``_oracle_render`` for the full design rationale — this function
+    supplies only the block-sequence-item embedding shape (a `k:` block
+    sequence holding the rendered value, alongside a preceding
+    differently-typed `title:` scalar and a trailing sentinel key).
     """
-    is_plain = (
-        bool(value)
-        and value == value.strip()
-        and "\n" not in value
-        and "\t" not in value
-        and ": " not in value
-        and not value.endswith(":")
-        and not value.startswith(_YAML_PLAIN_UNSAFE_START)
+    return _oracle_render(
+        value,
+        embed_doc=lambda rendered: f"---\ntitle: t\nk:\n  - {rendered}\nsentinel: end\n---\n",
+        expected={"title": "t", "k": [value], "sentinel": "end"},
+        context="value",
     )
-    if is_plain:
-        return value
-    return json.dumps(value)
+
+
+def _yaml_scalar_field(key: str, value: str) -> str:
+    """Return ``"<key>: <rendered-value>"`` for a top-level free-text
+    frontmatter scalar (``title:``/``source:``, INFRA-413/CER-219), via the
+    same shared oracle-verify-or-raise design as ``_yaml_block_scalar``
+    (``_oracle_render`` — see its docstring for the full design rationale).
+    This function supplies only the scalar-position embedding shape (a bare
+    top-level `<key>: <rendered>` scalar, alongside a trailing sentinel key
+    so CER-216-style frontmatter truncation is caught here too).
+
+    A bracket-prefixed value (e.g. ``[WIP] fix thing``) is not special-cased:
+    it simply never round-trips through the real reader — either raising
+    ``FrontmatterError`` or silently type-confusing into a ``list`` — so it
+    always falls through every candidate and always raises ``ValueError``
+    here, exactly like any other unrepresentable value (INFRA-413 Ensures
+    5-7 / CER-220).
+    """
+    rendered = _oracle_render(
+        value,
+        embed_doc=lambda rendered: f"---\n{key}: {rendered}\nsentinel: end\n---\n",
+        expected={key: value, "sentinel": "end"},
+        context=f"{key} value",
+    )
+    return f"{key}: {rendered}"
 
 
 def derive_test_paths(primary_files: list[str], project_dir: Path | str) -> list[str]:
@@ -122,13 +268,12 @@ def _story_frontmatter(
     (Ensures 4).
     """
     phase_val = phase if phase is not None else "backlog"
-    # CER-092: quote the title when it contains a whitespace-preceded '#',
-    # so the schema_validator scalar comment-stripping does not truncate an
-    # operator-supplied title containing a literal '#' (e.g. "... — ## Requires").
-    if re.search(r"(?:^|\s)#", title):
-        title_line = f'title: "{title}"'
-    else:
-        title_line = f"title: {title}"
+    # INFRA-413/CER-219: title: is rendered through the same oracle-verify-
+    # or-raise design as primary_files:/touches: list items
+    # (_yaml_scalar_field / _oracle_render) instead of the old hand-rolled
+    # CER-092 "#"-detection regex — the regex only ever covered one of the
+    # reader's several truncation/misparse shapes.
+    title_line = _yaml_scalar_field("title", title)
     lines = [
         "---",
         f"id: {story_id}",
@@ -141,7 +286,9 @@ def _story_frontmatter(
         lines.append(f"story_class: {story_class}")
     lines += ["auth_gated: false", "schema_introduces: false"]
     if source is not None:
-        lines.append(f"source: {source}")
+        # INFRA-413/CER-219: same oracle-verify-or-raise design as title:
+        # above — previously always emitted bare, unconditionally.
+        lines.append(_yaml_scalar_field("source", source))
     if test_gate is not None:
         lines.append(f"test_gate: {test_gate}")
     # primary_files is deliberately omitted for new (draft) stories with no
@@ -282,7 +429,13 @@ def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -
     phase_path = Path(matches[0])
     content = phase_path.read_text(encoding="utf-8")
 
-    new_row = f"| {story_id} | {title} | draft |"
+    # CER-221: escape any literal `|` in title so `table_utils.split_table_row`
+    # (the reader's documented escaping contract) does not shift the row's
+    # column count on read. A raw operator-supplied title cannot already
+    # contain the `\|` escape sequence, so a single unconditional replace is
+    # safe — no double-escaping risk.
+    escaped_title = title.replace("|", "\\|")
+    new_row = f"| {story_id} | {escaped_title} | draft |"
 
     # Find a Stories table (## Stories section with a markdown table)
     stories_section = re.search(r"(## Stories\s*\n)(.*?)(\n##|\Z)", content, re.DOTALL)
