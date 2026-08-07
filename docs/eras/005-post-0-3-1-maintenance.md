@@ -39,3 +39,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 140 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | planned |
 | 141 | Fix story_new.py writer/reader escaping mismatch (CER-213) | planned |
 | 142 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | planned |
+| 143 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | planned |
