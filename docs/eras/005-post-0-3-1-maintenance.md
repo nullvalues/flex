@@ -33,6 +33,6 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 134 | Recognize OBSOLETE as a CER resolution marker (CER-207) | complete |
 | 135 | Fleet-gate trivial quality fixes (CER-189/198/199/203/204/205) | complete |
 | 136 | Fleet-gate coverage and leak-closure fixes (CER-190/191/197/206) | complete |
-| 137 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | planned |
+| 137 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | complete |
 | 138 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | planned |
 | 139 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | planned |

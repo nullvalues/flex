@@ -158,7 +158,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 134 | Recognize OBSOLETE as a CER resolution marker (CER-207) | complete | [phase-134.md](phase-134.md) |
 | 135 | Fleet-gate trivial quality fixes (CER-189/198/199/203/204/205) | complete | [phase-135.md](phase-135.md) |
 | 136 | Fleet-gate coverage and leak-closure fixes (CER-190/191/197/206) | complete | [phase-136.md](phase-136.md) |
-| 137 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | planned | [phase-137.md](phase-137.md) |
+| 137 | Overrides/audit key-shape quality fixes (CER-182/184/185/202) | complete | [phase-137.md](phase-137.md) |
 | 138 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | planned | [phase-138.md](phase-138.md) |
 | 139 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | planned | [phase-139.md](phase-139.md) |
 
