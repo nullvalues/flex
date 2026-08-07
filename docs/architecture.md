@@ -2688,9 +2688,9 @@ a backfill run from inside `.pairmode-worktrees/<story>/` baked that worktree's 
 path into rendered agent files in both `/mnt/work/flex` and `/mnt/work/flex-harness`). Only a
 project with no declaration yet (a fresh bootstrap, or a pre-0.3.0 project that has never run
 `sync-all --apply`) falls back to `Path(__file__).parent` — the same first-time-binding
-`bootstrap.py` itself uses. This preserves flex's own intentional sibling-worktree dogfood
-binding (§ Release channel — flex-harness, below) across re-syncs, regardless of which
-checkout's copy of `pairmode_sync.py` happens to perform the sync.
+`bootstrap.py` itself uses. This preserves flex's own intentional dogfood
+binding (§ Self-reference decoupling — marketplace install, below) across re-syncs, regardless
+of which checkout's copy of `pairmode_sync.py` happens to perform the sync.
 
 **Body-merge duplication risk (resolved, INFRA-202):** `_merge_body_sections`
 previously deduped solely by exact `##`-heading string match. Target files
@@ -5268,11 +5268,14 @@ on the generic recursive walk alone.
 **Read-only contract:** the tool never opens any scanned project file for write. The only file
 it writes is a snapshot at `docs/fleet-snapshot.md`, and only **inside the repo the tool was
 invoked from** — never a scanned project, and (INFRA-295) never THIS scripts checkout when
-that checkout is not also the invoking repo. That second guard exists because, post-fold,
-`/mnt/work/flex-harness` is a **permanent read-only release channel** consumed by fleet
-projects, not a project someone is working in; a native session running `fleet_discovery.py`
-from inside a consumer repo without `--no-snapshot` used to default-write into the channel
-checkout it loaded the script from (caught during RELEASE-065 and reverted by hand). The
+that checkout is not also the invoking repo. That second guard was added because, before Phase
+145 retired it, `/mnt/work/flex-harness` was a **permanent read-only release channel** consumed
+by fleet projects, not a project someone is working in; a native session running
+`fleet_discovery.py` from inside a consumer repo without `--no-snapshot` used to default-write
+into the channel checkout it loaded the script from (caught during RELEASE-065 and reverted by
+hand). The guard itself still applies generally (this scripts checkout, whatever it currently
+is, should never be default-written from outside the invoking repo) even though the specific
+flex-harness channel that motivated it no longer exists. The
 default-destination resolver now refuses — emits a warning naming both `--snapshot` and
 `--no-snapshot` on stderr and writes nothing — whenever the invoking directory is outside the
 scripts checkout's flex root; an explicit `--snapshot PATH` is always honoured as the escape
