@@ -106,6 +106,7 @@ Important, not urgent. Quality improvements, architectural refinements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
+| CER-218 | MEDIUM: a shadow-reviewer's `.pairmode-suggestions.md` file, mid-build during INFRA-412's first attempt, disappeared partway through the shadow-reviewer's polling run -- its first entry plus banner vanished between polls with no trace, even as a `git status --ignored` entry (the file is gitignored). Suspected cause: some `git clean`-style step in the build-loop tooling (worktree teardown/discard) is not scoped to spare `.pairmode-suggestions.md`, which would silently defeat the shadow-reviewer's mid-build steering protocol every time a worktree is discarded and recreated for a retry -- exactly the sequence INFRA-412 went through (attempt 1 discarded, attempt 2 discarded, attempt 3 merged). Not independently verified against the actual teardown code path; needs confirmation before treating as a real defect vs. a one-off observation. Found by a shadow-reviewer agent observing its own suggestions file across INFRA-412's multi-attempt build (2026-08-07). skills/pairmode/scripts/flex_build.py (worktree discard/create paths), skills/pairmode/skills/shadow-reviewer/procedure.md. | shadow-reviewer | 2026-08-07 | 142 |
 
 
 
