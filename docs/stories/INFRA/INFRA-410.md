@@ -2,7 +2,7 @@
 id: INFRA-410
 rail: INFRA
 title: Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211)
-status: draft
+status: complete
 phase: "140"
 story_class: code
 auth_gated: false

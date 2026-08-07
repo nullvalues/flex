@@ -21,7 +21,7 @@ Close CER-211: story_new.py's _yaml_block_scalar quoting helper (CER-167) does n
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-410 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | draft |
+| INFRA-410 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | complete |
 
 ## Schema delivery
 
