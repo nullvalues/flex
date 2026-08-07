@@ -5368,6 +5368,15 @@ at its fan-in, sibling imports would eventually close an import cycle (`flex_bui
 `index_integrity` already lazy-imports around one). It has exactly one function and gains
 no others — column discovery, header detection and status normalisation stay per-site.
 
+Note the *reader* side (`split_table_row`, above) had its writer-side counterpart gap for
+much longer than the reader itself: `story_new.py`'s `_append_to_phase` — the write site
+that creates a story's initial Stories-table row — remained unescaped (a literal `|` in an
+operator-supplied title shifted the status column, the same INFRA-297/CER-066 shape one
+level earlier in the pipeline) until CER-221/INFRA-414 (Phase 144) closed it. A sibling gap
+in `flex_build.py`'s `_append_scope_widening_row` (the `## Scope widenings` audit-row
+writer) was found by the same Phase 144 checkpoint-security pass and filed as CER-233,
+not yet fixed as of this writing.
+
 
 ---
 

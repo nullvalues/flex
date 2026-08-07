@@ -37,9 +37,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-144 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — N/A: both fixes harden existing writers (`_append_to_phase`, `_append_touches_entry`) against their existing readers; no new field or write site introduced.
+- [x] required-never-written — N/A: no new read path added.
+- [x] duplicate state — no: each writer has its own single, unchanged read site.
+- [x] half-implementation — no: both Ensures sets fully covered by non-proxy regression tests (INFRA-414's test exercises the real `_check_phase_completion` misread path, not a string-contains proxy). This phase's own checkpoint-security pass found and correctly out-of-scoped a sibling gap in the same transaction (`_append_scope_widening_row`, the same CER-221 unescaped-pipe shape) rather than scope-creeping it in — filed as CER-233, not yet fixed.
 
-— developer fills in after phase completion —
+— filled in by orchestrator at checkpoint (2026-08-07) —
