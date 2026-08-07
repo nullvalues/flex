@@ -429,7 +429,13 @@ def _append_to_phase(project_dir: Path, phase: str, story_id: str, title: str) -
     phase_path = Path(matches[0])
     content = phase_path.read_text(encoding="utf-8")
 
-    new_row = f"| {story_id} | {title} | draft |"
+    # CER-221: escape any literal `|` in title so `table_utils.split_table_row`
+    # (the reader's documented escaping contract) does not shift the row's
+    # column count on read. A raw operator-supplied title cannot already
+    # contain the `\|` escape sequence, so a single unconditional replace is
+    # safe — no double-escaping risk.
+    escaped_title = title.replace("|", "\\|")
+    new_row = f"| {story_id} | {escaped_title} | draft |"
 
     # Find a Stories table (## Stories section with a markdown table)
     stories_section = re.search(r"(## Stories\s*\n)(.*?)(\n##|\Z)", content, re.DOTALL)

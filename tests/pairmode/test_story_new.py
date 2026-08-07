@@ -473,6 +473,132 @@ class TestPhaseFlag:
         assert "Added to Phase 003" in result.output
 
 
+class TestPipeBearingTitleEscaping:
+    """CER-221: a literal `|` in a story title must be escaped as `\\|` at the
+    `_append_to_phase` write site, matching `table_utils.split_table_row`'s
+    documented reader contract. These tests reproduce the actual failure mode
+    (a misread status column) end-to-end, not just a string-contains check on
+    the written row.
+    """
+
+    def _make_phase_file(self, tmp_path: pathlib.Path, phase: str) -> pathlib.Path:
+        phases_dir = tmp_path / "docs" / "phases"
+        phases_dir.mkdir(parents=True, exist_ok=True)
+        phase_path = phases_dir / f"phase-{phase}.md"
+        # Header uses "ID" (not "Story ID") to match the canonical header
+        # `next_action._check_phase_completion` recognizes via its
+        # `cols[0].lower() in ("id",)` header-row skip.
+        phase_path.write_text(
+            f"# Phase {phase}\n\n"
+            "## Stories\n\n"
+            "| ID | Title | Status |\n"
+            "|----------|-------|--------|\n",
+            encoding="utf-8",
+        )
+        return phase_path
+
+    def test_pipe_bearing_title_reads_back_as_draft_not_shifted_complete(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """Reproduces CER-221's exact reported failure mode: an unescaped `|`
+        in the title shifts the row's column count on read so that a literal
+        word `complete` inside the title lands in the status column instead
+        of the row's real, trailing `draft` status. This title is crafted so
+        that an *unescaped* write would misread as `complete` — proving this
+        is a real reproduction, not merely a check that `\\|` appears in the
+        written string (the forbidden proxy named in the story).
+        """
+        phase_path = self._make_phase_file(tmp_path, "900")
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+
+        result = invoke(
+            [
+                "--rail", "SHAPE",
+                "--title", "Edit | complete",
+                "--phase", "900",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+
+        content = phase_path.read_text()
+        # The escape must actually be present in the written row.
+        assert r"Edit \| complete" in content
+
+        # Read the row back through split_table_row directly (the reader's
+        # contract) and confirm the status column is the real trailing
+        # "draft" — not the shifted "complete" that an unescaped write would
+        # produce.
+        from skills.pairmode.scripts.table_utils import split_table_row
+
+        row_line = next(
+            line for line in content.splitlines() if "SHAPE-001" in line
+        )
+        raw_cols = split_table_row(row_line.strip())
+        cols = [c.strip() for c in raw_cols if c.strip()]
+        assert cols[0] == "SHAPE-001"
+        assert cols[2] == "draft"
+
+        # And the phase-completion guard must not be fooled into thinking
+        # this phase is complete — the story's real status is draft, so a
+        # single-row phase like this one must read as incomplete.
+        from skills.pairmode.scripts.next_action import _check_phase_completion
+
+        assert _check_phase_completion(phase_path, tmp_path) is False
+
+    def test_status_flip_preserves_escape_and_lands_in_correct_column(
+        self, tmp_path: pathlib.Path
+    ) -> None:
+        """`story_update._update_story_row_in_phase`'s status-flip rewrite
+        must preserve the already-escaped `\\|` in the title unchanged, and
+        the flipped status must land in the status column — not a shifted
+        one. Verified live (not assumed from the finding's note that this
+        path "should already be safe").
+        """
+        phase_path = self._make_phase_file(tmp_path, "901")
+        rail_dir = tmp_path / "docs" / "stories" / "SHAPE"
+        rail_dir.mkdir(parents=True)
+
+        result = invoke(
+            [
+                "--rail", "SHAPE",
+                "--title", "Edit | complete",
+                "--phase", "901",
+                "--project-dir", str(tmp_path),
+            ]
+        )
+        assert result.exit_code == 0, result.output
+
+        before = phase_path.read_text()
+        assert r"Edit \| complete" in before
+
+        from skills.pairmode.scripts.story_update import _update_story_row_in_phase
+
+        after = _update_story_row_in_phase(before, "SHAPE-001", "complete")
+        assert after != before
+
+        # The escape must survive the split/rejoin unchanged.
+        assert r"Edit \| complete" in after
+
+        from skills.pairmode.scripts.table_utils import split_table_row
+
+        row_line = next(
+            line for line in after.splitlines() if "SHAPE-001" in line
+        )
+        raw_cols = split_table_row(row_line.strip())
+        cols = [c.strip() for c in raw_cols if c.strip()]
+        assert cols[0] == "SHAPE-001"
+        assert cols[1] == r"Edit \| complete"
+        assert cols[2] == "complete"
+
+        # The phase-completion guard now correctly reads the flipped status.
+        from skills.pairmode.scripts.next_action import _check_phase_completion
+
+        phase_path.write_text(after, encoding="utf-8")
+        assert _check_phase_completion(phase_path, tmp_path) is True
+
+
 class TestValidationIntegration:
     """Validation is called after creation; errors are printed as warnings."""
 
