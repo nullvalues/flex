@@ -105,16 +105,27 @@ rather than self-resolving.
    preserved: `TestTitleHashQuoting.test_title_with_hash_is_quoted` and
    `.test_title_without_hash_is_unquoted`
    (`tests/pairmode/test_story_new.py:1034-1044`) pass unmodified.
-5. A title or source value beginning with `[` (e.g. `[WIP] fix thing`)
-   round-trips exactly: the generated story file's `title:`/`source:` line,
-   read back through `schema_validator._parse_frontmatter`, returns the
-   identical original string — not a `FrontmatterError`, and not silently
-   dropped or altered. Forbidden proxy: a fix that only suppresses the
-   `FrontmatterError` (e.g. by catching it) without the round-tripped value
-   equaling the original.
-6. A bracketed value containing a comma (e.g. `[abc, def] thing`) as a
-   title or source round-trips exactly as a string — not silently parsed
-   as a list (`_parse_flow_sequence`'s type-confusion shape).
+5. RESOLVED per CER-220 (option b, orchestrator-sanctioned — build attempt 1
+   empirically proved option (a), fixing this by touching
+   `schema_validator._parse_frontmatter`'s scalar branch, is out of scope for
+   this story and carries broader blast radius than a narrowly-scoped writer
+   fix should): a title or source value beginning with `[` (e.g. `[WIP] fix
+   thing`) is **not** required to round-trip. Instead, `_story_frontmatter`
+   raises `ValueError` naming the unrepresentable value for *any* title/source
+   candidate that does not round-trip through the real reader — which a
+   bracket-prefixed value never does, for either of `_parse_frontmatter`'s two
+   failure shapes (`FrontmatterError`, or silent type-confusion into a list).
+   This folds into the general oracle-verify-or-raise design (Ensures 7) as
+   simply one more case that always fails the oracle check and therefore
+   always raises — no special-casing of `[` is needed in the writer itself.
+   Forbidden proxy: catching/suppressing the reader's own `FrontmatterError`
+   or silently falling back to some other rendering instead of raising.
+6. A bracketed value containing a comma (e.g. `[abc, def] thing`) as a title
+   or source likewise raises `ValueError` via the same oracle-verify-or-raise
+   path (Ensures 7) — not silently parsed as a list
+   (`_parse_flow_sequence`'s type-confusion shape). Same resolution as
+   Ensures 5: this is a case the oracle check correctly detects as
+   unrepresentable and rejects, not a case requiring special-cased handling.
 7. When no candidate rendering round-trips for a title or source value
    (embedded real newline, or the value contains both `"` and `'`),
    `_story_frontmatter` raises `ValueError` naming the unrepresentable
