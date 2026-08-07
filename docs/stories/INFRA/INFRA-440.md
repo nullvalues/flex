@@ -2,7 +2,7 @@
 id: INFRA-440
 rail: INFRA
 title: Merge fold-prep to main; disposition of flex-harness clone and stale remote branches
-status: draft
+status: complete
 phase: "145"
 story_class: code
 auth_gated: false

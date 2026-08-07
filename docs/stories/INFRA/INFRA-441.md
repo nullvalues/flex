@@ -2,7 +2,7 @@
 id: INFRA-441
 rail: INFRA
 title: Repoint flex build loop at marketplace install; retire release-channel docs
-status: draft
+status: complete
 phase: "145"
 story_class: code
 auth_gated: false
