@@ -37,3 +37,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 138 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | complete |
 | 139 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | planned |
 | 140 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | planned |
+| 141 | Fix story_new.py writer/reader escaping mismatch (CER-213) | planned |

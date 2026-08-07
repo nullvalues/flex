@@ -162,6 +162,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 138 | Close shadow-reviewer scope_guard cwd-resolution gap (CER-176/177/201) | complete | [phase-138.md](phase-138.md) |
 | 139 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | planned | [phase-139.md](phase-139.md) |
 | 140 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | planned | [phase-140.md](phase-140.md) |
+| 141 | Fix story_new.py writer/reader escaping mismatch (CER-213) | planned | [phase-141.md](phase-141.md) |
 
 ---
 
