@@ -40,3 +40,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 141 | Fix story_new.py writer/reader escaping mismatch (CER-213) | planned |
 | 142 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | planned |
 | 143 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | planned |
+| 144 | Harden title/path serialization at two live writer gaps (CER-221/222) | planned |
