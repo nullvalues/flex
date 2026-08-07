@@ -2,7 +2,7 @@
 id: INFRA-414
 rail: INFRA
 title: Escape pipe in phase-manifest Stories-table title (CER-221)
-status: draft
+status: complete
 phase: "144"
 story_class: code
 auth_gated: false

@@ -2,7 +2,7 @@
 id: INFRA-415
 rail: INFRA
 title: Oracle-verify scope-widening frontmatter writes (CER-222)
-status: draft
+status: complete
 phase: "144"
 story_class: code
 auth_gated: false

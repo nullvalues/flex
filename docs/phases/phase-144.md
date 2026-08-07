@@ -21,8 +21,8 @@ Close CER-221 and CER-222: two independent write sites that serialize operator-s
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-414 | Escape pipe in phase-manifest Stories-table title (CER-221) | draft |
-| INFRA-415 | Oracle-verify scope-widening frontmatter writes (CER-222) | draft |
+| INFRA-414 | Escape pipe in phase-manifest Stories-table title (CER-221) | complete |
+| INFRA-415 | Oracle-verify scope-widening frontmatter writes (CER-222) | complete |
 
 ## Schema delivery
 
