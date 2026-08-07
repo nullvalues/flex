@@ -2,7 +2,7 @@
 id: INFRA-406
 rail: INFRA
 title: Fleet-gate coverage and leak-closure fixes (CER-190/191/197/206)
-status: draft
+status: complete
 phase: "136"
 story_class: code
 auth_gated: false

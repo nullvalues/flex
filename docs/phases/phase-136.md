@@ -21,7 +21,7 @@ Close four real coverage/leak gaps in the fleet-name reconciliation gate: unboun
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-406 | Fleet-gate coverage and leak-closure fixes (CER-190/191/197/206) | draft |
+| INFRA-406 | Fleet-gate coverage and leak-closure fixes (CER-190/191/197/206) | complete |
 
 ## Schema delivery
 
