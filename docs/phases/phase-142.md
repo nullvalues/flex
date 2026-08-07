@@ -36,9 +36,9 @@ this phase, record the management surface before the phase is checkpointed.
 
 ### CP-142 Cold-eyes checklist
 
-- [ ] written-never-read — does anything this phase persists have no reader?
-- [ ] required-never-written — does any read path depend on a value no writer produces?
-- [ ] duplicate state — is any fact now stored twice with independent writers?
-- [ ] half-implementation — is any branch unreachable, or any producer without its consumer?
+- [x] written-never-read — N/A: this phase replaces the writer's internal safety-decision logic (`_yaml_block_scalar`'s denylist → oracle round-trip); no new field or write site introduced.
+- [x] required-never-written — N/A: no new read path added; `schema_validator._parse_frontmatter` remains the sole reader, now also used internally by the writer as its own oracle.
+- [x] duplicate state — no: single write site, single read site — the oracle design reuses the existing reader rather than adding a second parse path.
+- [x] half-implementation — no: the oracle now covers `primary_files:`/`touches:` block-sequence items; `flex_build.py`'s separate `_append_touches_entry` writer (mid-build scope-widening) was NOT yet routed through the same oracle as of this phase — flagged and closed two phases later by Phase 144/INFRA-415 (CER-222), confirmed already resolved on disk at checkpoint time.
 
-— developer fills in after phase completion —
+— filled in by orchestrator at checkpoint (2026-08-07) —

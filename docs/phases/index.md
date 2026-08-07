@@ -163,7 +163,7 @@ reproducible-from-artifacts criteria a well-formed phase should meet.
 | 139 | Bootstrap/scaffold doc and quoting quality fixes (CER-166/167/187) | complete | [phase-139.md](phase-139.md) |
 | 140 | Fix silent YAML frontmatter truncation on embedded comment introducer (CER-211) | complete | [phase-140.md](phase-140.md) |
 | 141 | Fix story_new.py writer/reader escaping mismatch (CER-213) | complete | [phase-141.md](phase-141.md) |
-| 142 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | planned | [phase-142.md](phase-142.md) |
+| 142 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | complete | [phase-142.md](phase-142.md) |
 | 143 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | planned | [phase-143.md](phase-143.md) |
 | 144 | Harden title/path serialization at two live writer gaps (CER-221/222) | planned | [phase-144.md](phase-144.md) |
 
