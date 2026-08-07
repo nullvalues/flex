@@ -10,6 +10,7 @@ schema_introduces: false
 touches:
   - skills/pairmode/scripts/flex_build.py
   - tests/pairmode/test_flex_build_doctor_state.py
+  - .companion/state.json
 narrative_roles: []
 ---
 
@@ -47,6 +48,13 @@ None. `claimed_story_ids`, `entry_is_fresh`/`STATE_STORY_MAX_AGE_HOURS`,
 `_parse_phase_stories_with_status`, `update_story_status`, and
 `update_phase_story_status` all already exist in the tree and are reused, not
 reimplemented.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| .companion/state.json | clear orphaned current_story/current_stories stamp left by a session interrupted before its worktree/branch existed to discard against | 2026-08-07T19:58:37Z |
 
 ## Ensures
 
