@@ -30,14 +30,25 @@ Usage:
         # writes a git pre-commit hook (INFRA-400) that blocks a commit on a
         # failing --verify; REPO_ROOT defaults to this checkout's own root.
 
-Exclusions (INFRA-394 review finding — a prior attempt corrupted these):
+Exclusions (INFRA-394 review finding — a prior attempt corrupted these; the
+domain-suffix half narrowed by CER-190/INFRA-406, see below):
 a real name is skipped when it appears as part of an email address
-(``user@<name>...``) or as the host of a URL under ``<name>.<tld>`` used as
-someone's own public domain — both reduce to "the match is immediately
-followed by a domain suffix like ``.com``", which is not how a fleet repo
-name is ever used in prose. This check is generic (keyed off the matched
-text, not any hardcoded real name), so it applies uniformly to every mapped
-name, not just the one that happened to collide in review.
+(``user@<name>...``) or as a subdomain component of a URL host
+(``https://sub.<name>.<tld>/...``) — never as a bare prose mention that
+merely happens to be followed by a domain-suffix-shaped string
+(``<name>.io`` with nothing before it but whitespace/punctuation). The
+original check keyed exclusion off *only* the text following the match (any
+``.com``/``.io``/... suffix), which unboundedly swallowed every such
+mention — including a genuine leaked fleet-name-as-domain reference in
+prose — into the same "protect the operator's contact domain" exception,
+with no record of which case applied (CER-190). It now additionally
+requires the character immediately *preceding* the match to be ``@`` (email)
+or ``.`` (a URL host's subdomain separator) — the two shapes the docstring
+above actually describes — so a bare ``<name>.io`` mention with no such
+preceding marker is no longer silently excluded from both replacement and
+``--verify`` reporting. This check is generic (keyed off the matched text
+position, not any hardcoded real name), so it applies uniformly to every
+mapped name, not just the one that happened to collide in review.
 
 This script also never rewrites a file under this project's own
 ``protected_paths`` (read at runtime from ``CLAUDE.build.md``'s Build
@@ -199,30 +210,32 @@ def _validate_one_to_one(names_to_labels: dict[str, str]) -> None:
         labels_seen[label] = name
 
 
-def _expand_case_variants(names_to_labels: dict[str, str]) -> dict[str, str]:
-    """Expand each real name to its as-written, Capitalized, and UPPERCASE
-    forms, all mapped to the same label as the original.
+def _case_insensitive_labels(names_to_labels: dict[str, str]) -> dict[str, str]:
+    """``{lowercased real name: label}`` — the lookup a case-insensitive
+    substitution match resolves through (CER-190).
 
     Prose naturally capitalizes a proper noun at the start of a sentence
     (e.g. "<Name>'s CLAUDE.build.md...") or in an all-caps acronym-style
-    mention (e.g. "<NAME>"); a real name's mapping entry in
-    ``.pairmode-fleet.local.json`` is always lowercase (it is a directory
-    basename), so without this expansion those case variants would survive
-    the scrub as leftover real-name literals. This is a purely mechanical
-    transform of the runtime-loaded name — it never inspects or re-derives
-    from the docs being scrubbed.
+    mention (e.g. "<NAME>"), and may use any other mixed-case rendering too
+    (e.g. "<NaMe>" mid-sentence emphasis, a hyphenated title-case heading);
+    a real name's mapping entry in ``.pairmode-fleet.local.json`` is always
+    lowercase (it is a directory basename). The prior fix enumerated three
+    fixed case forms (as-written/Capitalized/UPPERCASE) via
+    ``_expand_case_variants`` — any other mixed-case rendering survived the
+    scrub unreported. ``_build_pattern`` now matches case-insensitively
+    (``re.IGNORECASE``) against every case variant generically; this
+    function is the corresponding lookup, keyed by the lowercased form, so
+    whatever case the pattern actually matched in the source text resolves
+    to the correct label regardless of which case form it was.
     """
-    expanded: dict[str, str] = {}
-    for name, label in names_to_labels.items():
-        for variant in (name, name.capitalize(), name.upper()):
-            expanded[variant] = label
-    return expanded
+    return {name.lower(): label for name, label in names_to_labels.items()}
 
 
 def _build_pattern(names_to_labels: dict[str, str]) -> re.Pattern | None:
-    """Build a single alternation regex, longest name first, so a longer
-    real name (e.g. one that is a strict prefix of another mapped name) is
-    never partially matched by a shorter alternative.
+    """Build a single case-insensitive alternation regex (CER-190), longest
+    name first, so a longer real name (e.g. one that is a strict prefix of
+    another mapped name) is never partially matched by a shorter
+    alternative.
     """
     if not names_to_labels:
         return None
@@ -230,18 +243,30 @@ def _build_pattern(names_to_labels: dict[str, str]) -> re.Pattern | None:
     escaped = [re.escape(n) for n in ordered_names]
     # Word-boundary on both sides so a real name embedded inside an unrelated
     # longer token is not matched (e.g. a name that happens to be a substring
-    # of some other word).
+    # of some other word). Case-insensitive (CER-190) so every case variant
+    # of a real name (mixed-case, not just as-written/Capitalized/UPPERCASE)
+    # is matched by construction rather than by enumerating fixed forms.
     pattern = r"\b(?:" + "|".join(escaped) + r")\b"
-    return re.compile(pattern)
+    return re.compile(pattern, re.IGNORECASE)
 
 
 def _is_domain_context(text: str, match: re.Match) -> bool:
-    """True if the match is immediately followed by a domain-suffix pattern
-    (".com", ".org", ...), indicating an email address or URL host rather
-    than a fleet-repo mention in prose. See module docstring.
+    """True only for a genuine email-address or URL-host mention: the match
+    is immediately followed by a domain-suffix pattern (".com", ".org", ...)
+    **and** immediately preceded by ``@`` (email) or ``.`` (a URL host's
+    subdomain separator, e.g. ``flex.<name>.com``). See module docstring
+    (CER-190) — bounding the check to these two preceding markers means a
+    bare prose mention that merely carries a coincidental domain-suffix tail
+    (e.g. ``<name>.io`` preceded only by whitespace/punctuation) is no
+    longer treated the same as a real contact-domain/URL-host exclusion.
     """
     tail = text[match.end():match.end() + 8]
-    return bool(_DOMAIN_SUFFIX_RE.match(tail))
+    if not _DOMAIN_SUFFIX_RE.match(tail):
+        return False
+    start = match.start()
+    if start == 0:
+        return False
+    return text[start - 1] in ("@", ".")
 
 
 def _tracked_files(root: Path) -> list[str]:
@@ -259,8 +284,14 @@ def _tracked_files(root: Path) -> list[str]:
     return [line for line in result.stdout.splitlines() if line]
 
 
-def _substitute(text: str, pattern: re.Pattern, names_to_labels: dict[str, str]) -> tuple[str, int]:
+def _substitute(text: str, pattern: re.Pattern, case_insensitive_labels: dict[str, str]) -> tuple[str, int]:
     """Apply pattern substitution to text, skipping domain-context matches.
+
+    ``case_insensitive_labels`` is keyed by lowercased real name (see
+    ``_case_insensitive_labels``, CER-190) — ``pattern`` itself matches
+    case-insensitively, so the matched text's own case may differ from any
+    dict key; the lookup normalizes via ``.lower()`` before resolving the
+    label.
 
     Returns (new_text, count_replaced).
     """
@@ -271,7 +302,7 @@ def _substitute(text: str, pattern: re.Pattern, names_to_labels: dict[str, str])
         if _is_domain_context(text, match):
             return match.group(0)
         count += 1
-        return names_to_labels[match.group(0)]
+        return case_insensitive_labels[match.group(0).lower()]
 
     new_text = pattern.sub(_repl, text)
     return new_text, count
@@ -286,8 +317,8 @@ def apply(root: Path = _FLEX_ROOT) -> int:
 
     names_to_labels = _real_names_to_labels(fleet_map)
     _validate_one_to_one(names_to_labels)
-    expanded = _expand_case_variants(names_to_labels)
-    pattern = _build_pattern(expanded)
+    case_insensitive_labels = _case_insensitive_labels(names_to_labels)
+    pattern = _build_pattern(names_to_labels)
     if pattern is None:
         print(f"{_NO_LOCAL_CONFIG_MESSAGE} (apply: nothing to do)")
         return 0
@@ -319,7 +350,7 @@ def apply(root: Path = _FLEX_ROOT) -> int:
         except (OSError, UnicodeDecodeError):
             continue  # binary or unreadable file — skip
 
-        new_text, count = _substitute(original, pattern, expanded)
+        new_text, count = _substitute(original, pattern, case_insensitive_labels)
         if count > 0 and new_text != original:
             abs_path.write_text(new_text, encoding="utf-8")
             changed_files += 1
@@ -368,9 +399,10 @@ def verify(root: Path = _FLEX_ROOT) -> int:
     # reporting, same contract as the rest of this function). Matched
     # case-insensitively via the shared `fleet_map.normalize_name` (CER-205)
     # so a name differing only in case from a mapped entry is still caught —
-    # the substitution pattern itself (`_expand_case_variants`) already
-    # treats case variants of the same real name as equivalent, and this
-    # check must agree with that rather than compare case-exactly.
+    # the substitution pattern itself (`_build_pattern`, CER-190) already
+    # matches case-insensitively, treating case variants of the same real
+    # name as equivalent, and this check must agree with that rather than
+    # compare case-exactly.
     names_to_labels_for_conflict = _real_names_to_labels(fleet_map)
     excluded_names = _fleet_map_lib.excluded_repo_names(fleet_map)
     normalized_excluded = {
@@ -419,8 +451,8 @@ def verify(root: Path = _FLEX_ROOT) -> int:
             print(f"  {d}", file=sys.stderr)
 
     names_to_labels = _real_names_to_labels(fleet_map)
-    expanded = _expand_case_variants(names_to_labels)
-    pattern = _build_pattern(expanded)
+    case_insensitive_labels = _case_insensitive_labels(names_to_labels)
+    pattern = _build_pattern(names_to_labels)
     if pattern is None:
         if reconciliation_failed:
             return 1
@@ -450,7 +482,7 @@ def verify(root: Path = _FLEX_ROOT) -> int:
             for match in pattern.finditer(line):
                 if _is_domain_context(line, match):
                     continue
-                label = expanded[match.group(0)]
+                label = case_insensitive_labels[match.group(0).lower()]
                 hits.append(f"{label} — {rel_path}:{lineno}")
 
     if hits:
@@ -530,8 +562,8 @@ def apply_lessons(root: Path = _FLEX_ROOT) -> int:
 
     names_to_labels = _real_names_to_labels(fleet_map)
     _validate_one_to_one(names_to_labels)
-    expanded = _expand_case_variants(names_to_labels)
-    pattern = _build_pattern(expanded)
+    case_insensitive_labels = _case_insensitive_labels(names_to_labels)
+    pattern = _build_pattern(names_to_labels)
     if pattern is None:
         print(f"{_NO_LOCAL_CONFIG_MESSAGE} (apply --lessons: nothing to do)")
         return 0
@@ -548,7 +580,7 @@ def apply_lessons(root: Path = _FLEX_ROOT) -> int:
 
     total_replacements = 0
     for entry in entries:
-        total_replacements += _substitute_lesson_entry(entry, pattern, expanded)
+        total_replacements += _substitute_lesson_entry(entry, pattern, case_insensitive_labels)
 
     new_ids = [entry.get("id") for entry in entries]
     if len(entries) != original_count or new_ids != original_ids:
@@ -592,8 +624,8 @@ def verify_lessons(root: Path = _FLEX_ROOT) -> int:
         return 0
 
     names_to_labels = _real_names_to_labels(fleet_map)
-    expanded = _expand_case_variants(names_to_labels)
-    pattern = _build_pattern(expanded)
+    case_insensitive_labels = _case_insensitive_labels(names_to_labels)
+    pattern = _build_pattern(names_to_labels)
     if pattern is None:
         print(_NO_LOCAL_CONFIG_MESSAGE)
         return 0
@@ -624,7 +656,7 @@ def verify_lessons(root: Path = _FLEX_ROOT) -> int:
                 for match in pattern.finditer(text):
                     if _is_domain_context(text, match):
                         continue
-                    label = expanded[match.group(0)]
+                    label = case_insensitive_labels[match.group(0).lower()]
                     hits.append(
                         f"{label} — {_LESSONS_JSON_REL}: entry {entry_id} "
                         f"field {field_name!r}"
@@ -637,7 +669,7 @@ def verify_lessons(root: Path = _FLEX_ROOT) -> int:
             for match in pattern.finditer(line):
                 if _is_domain_context(line, match):
                     continue
-                label = expanded[match.group(0)]
+                label = case_insensitive_labels[match.group(0).lower()]
                 hits.append(f"{label} — {_LESSONS_MD_REL}:{lineno}")
 
     if hits:

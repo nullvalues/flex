@@ -336,6 +336,67 @@ def test_verify_catches_leftover_capitalized_mention(repo: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# CER-190: generic (not fixed-form) case-insensitive matching, and bounded
+# domain-suffix exclusion (previously unbounded — see the "Domain-context
+# exclusion" test class above for the two contexts that must STILL be
+# excluded: a real email address and a URL host's subdomain component).
+# ---------------------------------------------------------------------------
+
+def test_apply_replaces_arbitrary_mixed_case_mention(repo: Path) -> None:
+    """A case form outside the three fixed forms the prior fix enumerated
+    (as-written/Capitalized/UPPERCASE) — e.g. mid-word mixed case — must
+    still be caught by construction (re.IGNORECASE), not by enumeration.
+    Forbidden proxy: only the exact-case bare token is matched, leaving any
+    other case rendering (like this one) un-anonymized."""
+    _write(repo, "docs/notes.md", "the ExAmPlE-rEpO-a tool is handy")
+    _git_add(repo)
+
+    sfn.apply(repo)
+
+    text = (repo / "docs/notes.md").read_text()
+    assert "ExAmPlE-rEpO-a" not in text
+    assert "Repo-A" in text
+
+
+def test_apply_replaces_bare_prose_mention_with_domain_suffix_tail(repo: Path) -> None:
+    """CER-190: a bare prose mention that merely happens to be followed by a
+    domain-suffix-shaped string (no @ and no subdomain '.' immediately
+    before it) is a coincidental leak, not a genuine email/URL-host mention,
+    and must now be anonymized. Forbidden proxy: leaving 'example-repo-a.io'
+    in the output."""
+    _write(repo, "docs/notes.md", "check out example-repo-a.io sometime")
+    _git_add(repo)
+
+    sfn.apply(repo)
+
+    text = (repo / "docs/notes.md").read_text()
+    assert "example-repo-a.io" not in text
+    assert "Repo-A" in text
+
+
+def test_verify_reports_bare_prose_domain_suffix_mention(repo: Path) -> None:
+    _write(repo, "docs/notes.md", "check out example-repo-a.io sometime")
+    _git_add(repo)
+
+    assert sfn.verify(repo) == 1
+
+
+def test_apply_still_leaves_substring_of_longer_word_untouched_with_ignorecase(
+    repo: Path,
+) -> None:
+    """The word-boundary guard must still hold once matching is
+    case-insensitive — a real name embedded inside an unrelated longer token
+    (in any case) must not be partially rewritten."""
+    _write(repo, "docs/notes.md", "NotEXAMPLE-REPO-Astuff should be untouched.")
+    _git_add(repo)
+
+    sfn.apply(repo)
+
+    text = (repo / "docs/notes.md").read_text()
+    assert "Repo-A" not in text
+
+
+# ---------------------------------------------------------------------------
 # Vendored-path exclusion (real-world regression: a short real name like
 # a short real name collided with an unrelated token inside checked-in
 # node_modules)

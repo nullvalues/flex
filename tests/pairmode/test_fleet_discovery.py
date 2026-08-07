@@ -1443,3 +1443,292 @@ class TestSignal1FieldAnonymization:
         joined = json.dumps(payload)
         assert "repo-zeta" not in joined
         assert "Repo-Z" in joined
+
+
+# ---------------------------------------------------------------------------
+# CER-191: fleet map -> candidate list accounts for every dropped entry
+# rather than silently shrinking the count.
+# ---------------------------------------------------------------------------
+
+class TestCandidateBreakdownAccounting:
+    def test_breakdown_names_reserved_keys_present(self, fleet: dict) -> None:
+        fleet_map = {
+            "_fleet_root": "/fake/fleet-root",
+            "_excluded": ["legacy-tool"],
+            "Repo-X": "/fake/repo-x",
+            "Repo-Y": "/fake/repo-y",
+        }
+        breakdown = fd._fleet_map_candidate_breakdown(fleet_map)
+
+        assert breakdown["total"] == 4
+        assert breakdown["candidates"] == 2
+        assert breakdown["reserved_present"] == ["_excluded", "_fleet_root"]
+
+    def test_breakdown_empty_map_is_all_zero(self) -> None:
+        breakdown = fd._fleet_map_candidate_breakdown({})
+        assert breakdown == {"total": 0, "candidates": 0, "reserved_present": []}
+
+    def test_breakdown_no_reserved_keys_present_reports_empty_list(self) -> None:
+        breakdown = fd._fleet_map_candidate_breakdown({"Repo-X": "/fake/repo-x"})
+        assert breakdown["total"] == 1
+        assert breakdown["candidates"] == 1
+        assert breakdown["reserved_present"] == []
+
+    def test_default_candidates_reports_dropped_reserved_keys_on_stderr(
+        self, fleet: dict, capsys
+    ) -> None:
+        """Forbidden proxy (CER-191): a candidate total that shrinks with no
+        record of which entry was dropped. Every reserved key actually
+        present in the config must be named in the reported breakdown."""
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({
+                "_fleet_root": "/fake/fleet-root",
+                "_excluded": ["legacy-tool"],
+                "Repo-X": "/fake/repo-x",
+            }),
+            encoding="utf-8",
+        )
+
+        fd._default_candidates()
+
+        captured = capsys.readouterr()
+        assert "3 entrie(s) -> 1 repo candidate(s)" in captured.err
+        assert "_excluded" in captured.err
+        assert "_fleet_root" in captured.err
+
+    def test_default_candidates_reports_zero_dropped_when_nothing_reserved(
+        self, fleet: dict, capsys
+    ) -> None:
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-X": "/fake/repo-x"}), encoding="utf-8"
+        )
+
+        fd._default_candidates()
+
+        captured = capsys.readouterr()
+        assert "0 non-candidate key(s) skipped (reserved: none)" in captured.err
+
+    def test_default_candidates_silent_when_no_local_config(
+        self, fleet: dict, capsys
+    ) -> None:
+        fd._default_candidates()
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+
+# ---------------------------------------------------------------------------
+# CER-197: --json anonymization recurses over the full structure, covering
+# duplicate_hooks / machine_absolute_hooks nested list-of-dict entries.
+# ---------------------------------------------------------------------------
+
+class TestNestedAnonymization:
+    def _result_with_nested_hooks(self, project_path: str) -> dict:
+        return {
+            "path": project_path,
+            "signal1": True,
+            "signal1_value": "x",
+            "signal2": False,
+            "signal2_value": None,
+            "binding": "scripts",
+            "signal1_absent_reason": None,
+            "signal1_absent_detail": None,
+            "duplicate_hooks": [
+                {
+                    "event": "PreToolUse",
+                    "basename": "foo.py",
+                    "commands": [
+                        f"uv run python {project_path}/hooks/foo.py",
+                        f"uv run python {project_path}/hooks/foo.py",
+                    ],
+                    "sources": ["settings", "settings.local"],
+                    "matchers": ["Edit"],
+                    "predicates": [None],
+                    "paths": [f"{project_path}/hooks/foo.py"],
+                    "actionable": True,
+                }
+            ],
+            "machine_absolute_hooks": [
+                {
+                    "event": "PreToolUse",
+                    "basename": "bar.py",
+                    "command": f"uv run python {project_path}/hooks/bar.py",
+                    "source": "settings",
+                    "path": f"{project_path}/hooks/bar.py",
+                    "reason": "machine-bound",
+                }
+            ],
+        }
+
+    def test_mapped_project_path_scrubbed_inside_duplicate_hooks(
+        self, fleet: dict
+    ) -> None:
+        synthetic = fleet["fake_flex_root"].parent / "Fakeproject-Nested"
+        synthetic.mkdir()
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-Nested": str(synthetic)}), encoding="utf-8"
+        )
+        fleet_map = fd._load_local_fleet_map()
+        result = self._result_with_nested_hooks(str(synthetic))
+
+        anonymized = fd._anonymize_results_for_output([result], fleet_map)
+
+        joined = json.dumps(anonymized)
+        assert synthetic.name not in joined
+        assert str(synthetic) not in joined
+        assert "Repo-Nested" in joined
+        # Confirm the nested fields specifically carry the label, not just
+        # some other field incidentally.
+        dh = anonymized[0]["duplicate_hooks"][0]
+        assert all("Repo-Nested" in c for c in dh["commands"])
+        assert "Repo-Nested" in dh["paths"][0]
+        mah = anonymized[0]["machine_absolute_hooks"][0]
+        assert "Repo-Nested" in mah["command"]
+        assert "Repo-Nested" in mah["path"]
+
+    def test_unmapped_project_path_placeholdered_inside_nested_hooks(
+        self, fleet: dict
+    ) -> None:
+        """Even with no fleet-map entry at all for this project, its own
+        real path embedded inside nested duplicate_hooks/machine_absolute_hooks
+        strings must not survive — it resolves to the same placeholder used
+        for the top-level "path" field."""
+        synthetic = fleet["fake_flex_root"].parent / "Fakeproject-Unmapped-Nested"
+        synthetic.mkdir()
+        result = self._result_with_nested_hooks(str(synthetic))
+
+        anonymized = fd._anonymize_results_for_output([result], {})
+
+        joined = json.dumps(anonymized)
+        assert synthetic.name not in joined
+        assert str(synthetic) not in joined
+        assert "<unmapped-repo-" in joined
+        # The placeholder used inside the nested fields matches the one
+        # used for the top-level path (same real path -> same placeholder).
+        assert anonymized[0]["path"] in anonymized[0]["duplicate_hooks"][0]["commands"][0]
+
+    def test_non_string_leaves_pass_through_unchanged(self, fleet: dict) -> None:
+        result = self._result_with_nested_hooks("/irrelevant/for/this/test")
+        result["duplicate_hooks"][0]["actionable"] = True
+        result["duplicate_hooks"][0]["predicates"] = [None, False, 3]
+
+        anonymized = fd._anonymize_results_for_output([result], {})
+
+        dh = anonymized[0]["duplicate_hooks"][0]
+        assert dh["actionable"] is True
+        assert dh["predicates"] == [None, False, 3]
+
+    def test_cli_json_never_leaks_real_path_inside_duplicate_hooks(
+        self, fleet: dict, tmp_path: Path
+    ) -> None:
+        from click.testing import CliRunner
+
+        proj = fleet["proj_a"]
+        settings_dir = proj / ".claude"
+        settings_dir.mkdir()
+        hook_cmd = f"uv run python {proj}/hooks/foo.py"
+        (settings_dir / "settings.json").write_text(
+            json.dumps({
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Edit",
+                            "hooks": [
+                                {"type": "command", "command": hook_cmd},
+                                {"type": "command", "command": hook_cmd},
+                            ],
+                        }
+                    ]
+                }
+            }),
+            encoding="utf-8",
+        )
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-A": str(proj)}), encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            fd.cli,
+            ["--candidate-dir", str(proj), "--json", "--no-snapshot"],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+        assert proj.name not in result.stdout
+        payload = json.loads(result.stdout)
+        assert "Repo-A" in json.dumps(payload)
+
+
+# ---------------------------------------------------------------------------
+# CER-206: cli() fails loud on a malformed local fleet config rather than
+# silently falling back to the default fleet root.
+# ---------------------------------------------------------------------------
+
+class TestMalformedConfigFailsLoud:
+    def test_cli_exits_nonzero_on_malformed_config(self, fleet: dict) -> None:
+        from click.testing import CliRunner
+
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            "{not valid json", encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(fd.cli, ["--no-snapshot"], catch_exceptions=False)
+
+        assert result.exit_code != 0
+        assert ".pairmode-fleet.local.json" in result.output
+
+    def test_cli_malformed_config_message_names_cer_206(self, fleet: dict) -> None:
+        from click.testing import CliRunner
+
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            "{not valid json", encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(fd.cli, ["--no-snapshot"], catch_exceptions=False)
+
+        assert "CER-206" in result.output
+
+    def test_cli_valid_config_unaffected_by_malformed_check(self, fleet: dict) -> None:
+        """Control case: a valid config still runs the CLI exactly as
+        before — the CER-206 check is a pure boundary guard, not a
+        behavior change for the happy path."""
+        from click.testing import CliRunner
+
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            json.dumps({"Repo-X": str(fleet["proj_a"])}), encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(fd.cli, ["--no-snapshot"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+
+    def test_cli_absent_config_unaffected_by_malformed_check(self, fleet: dict) -> None:
+        """Control case: no local config at all is unaffected — the
+        malformed-config check must not fire for a genuinely missing file."""
+        from click.testing import CliRunner
+
+        runner = CliRunner()
+        result = runner.invoke(fd.cli, ["--no-snapshot"], catch_exceptions=False)
+
+        assert result.exit_code == 0
+
+    def test_cli_never_falls_back_to_default_root_on_malformed_config(
+        self, fleet: dict
+    ) -> None:
+        """Forbidden proxy (CER-206): the run must not silently proceed on
+        the default fleet root when the config is malformed — verified here
+        by confirming discover() never actually ran (no snapshot/candidate
+        output at all, just the error)."""
+        from click.testing import CliRunner
+
+        (fleet["fake_flex_root"] / ".pairmode-fleet.local.json").write_text(
+            "{not valid json", encoding="utf-8"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(fd.cli, ["--no-snapshot"], catch_exceptions=False)
+
+        assert "Candidates scanned" not in result.output
+        assert "Flex checkout" not in result.output

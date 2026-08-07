@@ -127,11 +127,51 @@ def _load_local_fleet_map() -> dict[str, str]:
     module's own discovery/candidate-listing use of the map is not a gate;
     that error is caught here and folded back into this function's
     documented never-raises contract, unchanged from before INFRA-403.
+
+    This never-raises contract is a **library-function** guarantee only —
+    every internal caller in this module (``_default_candidates``,
+    ``discover``, ``_write_snapshot``) may legitimately keep degrading to an
+    empty map on a malformed config, the same graceful-degrade behaviour a
+    genuinely absent file gets. It is **not** the contract at the ``cli()``
+    entry point: CER-206 found that folding a malformed-config parse failure
+    into "nothing configured" there silently discarded a custom
+    ``_fleet_root`` and narrowed anonymization scope to the default sibling
+    scan without the operator ever seeing why. ``cli()`` therefore performs
+    its own, separate ``fleet_map_lib.load_local_fleet_map`` call ahead of
+    everything else and exits non-zero with an explicit message on
+    ``FleetMapConfigError``, rather than reaching this function at all in
+    that case — see ``cli()`` below.
     """
     try:
         return fleet_map_lib.load_local_fleet_map(_FLEX_ROOT)
     except fleet_map_lib.FleetMapConfigError:
         return {}
+
+
+def _fleet_map_candidate_breakdown(fleet_map: dict[str, str]) -> dict:
+    """Account for every key in a local fleet map when deriving repo
+    candidates (CER-191): reserved config keys (``_fleet_root``,
+    ``_excluded``, ``_comment``, ...) are legitimate non-candidates, but the
+    prior code silently dropped them from the candidate count with no
+    record of which key vanished or why — the exact false-confidence shape
+    a shrinking count with no rationale produces.
+
+    Returns ``{"total": int, "candidates": int, "reserved_present": list[str]}``
+    — ``total`` is every key in ``fleet_map``, ``candidates`` is the count of
+    ``{label: real_path}`` repo entries surviving the reserved-key filter
+    (``fleet_map_lib.repo_entries``), and ``reserved_present`` is the sorted
+    list of reserved key *names actually present* in ``fleet_map`` (not the
+    full reserved-keys universe), so every non-candidate key is named, not
+    just counted.
+    """
+    reserved_present = sorted(
+        k for k in fleet_map if k in fleet_map_lib.RESERVED_CONFIG_KEYS
+    )
+    return {
+        "total": len(fleet_map),
+        "candidates": len(fleet_map_lib.repo_entries(fleet_map)),
+        "reserved_present": reserved_present,
+    }
 
 
 def _default_candidates() -> list[Path]:
@@ -144,8 +184,23 @@ def _default_candidates() -> list[Path]:
     # From the local, gitignored fleet map (CER-172) — real absolute paths,
     # never committed source string literals. Excludes the reserved
     # `_fleet_root` config key (INFRA-400) — it's configuration, not a repo
-    # candidate.
-    for real_path in fleet_map_lib.repo_entries(_load_local_fleet_map()).values():
+    # candidate. CER-191: every dropped (reserved-key) entry is accounted
+    # for on stderr rather than silently shrinking the candidate count with
+    # no record of what was dropped or why.
+    fleet_map = _load_local_fleet_map()
+    breakdown = _fleet_map_candidate_breakdown(fleet_map)
+    if breakdown["total"]:
+        dropped = breakdown["total"] - breakdown["candidates"]
+        print(
+            "fleet_discovery: local fleet map has "
+            f"{breakdown['total']} entrie(s) -> {breakdown['candidates']} "
+            f"repo candidate(s); {dropped} non-candidate key(s) skipped "
+            "(reserved: "
+            f"{', '.join(breakdown['reserved_present']) or 'none'})",
+            file=sys.stderr,
+        )
+
+    for real_path in fleet_map_lib.repo_entries(fleet_map).values():
         candidates.append(Path(real_path))
 
     # Deduplicate while preserving order
@@ -499,24 +554,37 @@ def _default_snapshot_destination(
 def _anonymize_results_for_output(
     results: list[dict], fleet_map: dict[str, str]
 ) -> list[dict]:
-    """Return a copy of ``results`` with every path-shaped field mapped
-    through ``fleet_map`` to its label, or a stable non-identifying
-    placeholder (``<unmapped-repo-N>``) when a path has no map entry
-    (Ensures 4). Each unmapped gap is reported once on stderr. The same real
-    path always maps to the same placeholder within one call, so the
-    composed document / CLI output stays internally consistent.
+    """Return a copy of ``results`` with every path-shaped string anywhere in
+    the structure mapped through ``fleet_map`` to its label, or a stable
+    non-identifying placeholder (``<unmapped-repo-N>``) when a path has no
+    map entry (Ensures 4). Each unmapped gap is reported once on stderr. The
+    same real path always maps to the same placeholder within one call, so
+    the composed document / CLI output stays internally consistent.
 
-    Covers the bare ``"path"`` key (exact match) and the free-text
-    ``"signal1_value"``/``"signal1_absent_detail"`` fields (Ensures 2,
-    INFRA-401): the latter two are absolute-path-bearing prose/shell-command
-    strings, not bare repo paths, so a fleet-root child repo path occurring
-    *within* the string is substituted in place — resolved through the same
-    ``_resolve`` used for ``"path"`` — rather than the whole field being
-    replaced. Candidate substrings to look for come from the fleet map's own
-    mapped entries plus any on-disk sibling under the fleet root (mapped or
-    not), so an unmapped sibling repo path mentioned in free text still
-    yields the ``<unmapped-repo-N>`` placeholder rather than surviving
-    verbatim.
+    CER-197: anonymization **recurses over the full emitted structure**
+    (dicts, lists, and nested combinations of either) rather than scrubbing
+    a fixed enumeration of top-level fields — the prior version covered only
+    ``"path"``/``"signal1_value"``/``"signal1_absent_detail"``, leaving a
+    real absolute path inside ``"duplicate_hooks"``/``"machine_absolute_hooks"``
+    list-of-dict entries (``commands``, ``paths``, ``command``, ``path``, ...)
+    to reach ``--json`` output verbatim. Every string leaf, at any nesting
+    depth, is now substring-scanned for a known fleet-root child repo path
+    and substituted; non-string leaves (bool, int, ``None``, ...) pass
+    through unchanged. Candidate substrings to look for come from the fleet
+    map's own mapped entries, any on-disk sibling under the fleet root
+    (mapped or not — an unmapped sibling still needs to be found so its
+    mention resolves to a placeholder rather than surviving raw), plus the
+    specific result's own ``"path"`` (so a project's own path appearing
+    inside its own nested hook command/path strings — the common case — is
+    covered even for a project that isn't itself in the fleet map or under
+    the fleet root, e.g. one supplied only via ``--candidate-dir``).
+
+    The bare ``"path"`` key is additionally forced through an exact-match
+    resolve after the recursive pass (Ensures 4): any path reaches a
+    placeholder unconditionally, even one that happens not to appear in the
+    known-paths substring set for some other reason — this guarantee must
+    never depend on the generic recursive walk finding it as a substring
+    match of itself.
 
     Called at the output boundary — before snapshot composition and again at
     the CLI print boundary — never at collection: ``discover()``'s own
@@ -548,9 +616,8 @@ def _anonymize_results_for_output(
     fleet_root = fleet_map_lib.resolve_fleet_root(fleet_map, _FLEX_ROOT)
     known_paths = set(fleet_map_lib.repo_entries(fleet_map).values())
     known_paths.update(str(p) for p in fleet_map_lib.sibling_repo_dirs(fleet_root))
-    ordered_known_paths = sorted((p for p in known_paths if p), key=len, reverse=True)
 
-    def _resolve_in_text(text: Optional[str]) -> Optional[str]:
+    def _resolve_in_text(text: Optional[str], ordered_known_paths: list[str]) -> Optional[str]:
         if text is None:
             return None
         for real_path in ordered_known_paths:
@@ -558,15 +625,34 @@ def _anonymize_results_for_output(
                 text = text.replace(real_path, _resolve(real_path))
         return text
 
-    return [
-        {
-            **r,
-            "path": _resolve(r["path"]),
-            "signal1_value": _resolve_in_text(r.get("signal1_value")),
-            "signal1_absent_detail": _resolve_in_text(r.get("signal1_absent_detail")),
-        }
-        for r in results
-    ]
+    def _anonymize_value(value, ordered_known_paths: list[str]):
+        """Recurse over dicts/lists; substring-resolve every string leaf
+        (CER-197). Non-string, non-dict, non-list leaves pass through
+        unchanged."""
+        if isinstance(value, str):
+            return _resolve_in_text(value, ordered_known_paths)
+        if isinstance(value, dict):
+            return {k: _anonymize_value(v, ordered_known_paths) for k, v in value.items()}
+        if isinstance(value, list):
+            return [_anonymize_value(v, ordered_known_paths) for v in value]
+        return value
+
+    out: list[dict] = []
+    for r in results:
+        result_known_paths = set(known_paths)
+        own_path = r.get("path")
+        if isinstance(own_path, str) and own_path:
+            result_known_paths.add(own_path)
+        ordered_known_paths = sorted(
+            (p for p in result_known_paths if p), key=len, reverse=True
+        )
+        anonymized = _anonymize_value(r, ordered_known_paths)
+        # Force the bare "path" key through the exact-match resolve
+        # unconditionally (Ensures 4) — never rely solely on the recursive
+        # substring walk above for this specific guarantee.
+        anonymized["path"] = _resolve(r["path"])
+        out.append(anonymized)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -747,6 +833,26 @@ def cli(
     output_json: bool,
 ) -> None:
     """Scan candidate project directories for flex binding signals (read-only)."""
+
+    # CER-206: fail loud on a malformed local fleet config, rather than
+    # letting the never-raises library contract (`_load_local_fleet_map`,
+    # used by `_default_candidates`/`discover`/`_write_snapshot` below) fold
+    # the parse failure into "nothing configured" and silently continue on
+    # the default fleet root — which discards a custom `_fleet_root` and
+    # narrows anonymization scope to the default sibling scan with no
+    # operator-visible signal that anything went wrong. This check runs
+    # first, before any candidate is built, so a malformed config never
+    # reaches a degraded run at all.
+    try:
+        fleet_map_lib.load_local_fleet_map(_FLEX_ROOT)
+    except fleet_map_lib.FleetMapConfigError as e:
+        click.echo(
+            f"fleet_discovery: {e} — refusing to fall back to the default "
+            "fleet root, which would silently discard a custom "
+            "_fleet_root and narrow anonymization scope (CER-206)",
+            err=True,
+        )
+        sys.exit(1)
 
     # Build candidate list
     candidates = _default_candidates()
