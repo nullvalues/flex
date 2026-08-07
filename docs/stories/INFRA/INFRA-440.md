@@ -9,7 +9,8 @@ auth_gated: false
 schema_introduces: false
 primary_files:
   - docs/phases/phase-proposed-retire-harness-release-channel-20260804-001.md
-touches: []
+touches:
+  - docs/release-0-4-1-findings-20260807.md
 narrative_roles: []
 ---
 
@@ -53,6 +54,13 @@ spec time and the builder must re-verify (§ Instructions step 1):
   reverse.
 - `/mnt/work/flex-harness` reports a clean tree (`git status --porcelain`
   empty). If it is dirty, stop and report — do not `--force`.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| docs/release-0-4-1-findings-20260807.md | repoint stale phase-proposed-retire-harness-release-channel filename reference to phase-145.md per Instructions step 6 | 2026-08-07T18:35:34Z |
 
 ## Ensures
 
@@ -159,3 +167,29 @@ Three points need operator confirmation before a builder runs this:
 3. **Remote deletions deferred.** Six remote-branch deletions on the shared
    `origin` are handed to the operator (§ Operator handoff) rather than run by
    the builder.
+
+## Evidence
+
+- `grep -rc 'flex-harness project' .claude/agents/` reports `0` for the three
+  files fold-prep actually touched (`docs-reviewer.md`, `gate-worker.md`,
+  `spec-writer.md`) — confirming the `-s ours` merge left the tree
+  byte-identical, per `## Ensures`. It reports `1` for five other agent files
+  (`builder.md`, `reviewer.md`, `security-auditor.md`, `loop-breaker.md`,
+  `intent-reviewer.md`); those hits predate this story and even predate
+  `fold-prep` itself — traced via `git log -p --follow` to commit `9acb9145`
+  ("dogfood flip — apply thin loop + retire legacy agent templates"), long
+  before the `fold-prep` branch existed — and are therefore unrelated,
+  out-of-scope pre-existing content, not a merge regression.
+- `git rev-list --count main..harness` = 0 (re-verified per Instructions
+  step 1) — `harness` was archived and deleted, never merged.
+- After `git rm` of the proposed-phase doc (already absent — INFRA-441 had
+  already removed it from `main` via its own `touches:` scope), a
+  `docs/`-wide grep for the filename turned up two remaining prose mentions
+  in `docs/release-0-4-1-findings-20260807.md` (lines 55 and 185); both were
+  repointed to `docs/phases/phase-145.md` (one-line edits, scope widened via
+  `flex_build.py permissions-widen`, see `## Scope widenings` above). The
+  only other remaining mentions are inside this story's own and
+  INFRA-441's story-spec prose (`docs/stories/INFRA/INFRA-440.md`,
+  `docs/stories/INFRA/INFRA-441.md`), which is expected — they are the
+  historical instructional record of the deletion itself, not live
+  doc-graph references.

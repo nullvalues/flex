@@ -52,7 +52,7 @@ as CER rows before the remediation phase is specced.
   Content merge-down is trivial; the real work is the architectural
   retirement of the release channel, already drafted (goal, background,
   open questions, doc-impact list; **no stories yet**) in
-  `docs/phases/phase-proposed-retire-harness-release-channel-20260804-001.md`.
+  `docs/phases/phase-145.md`.
 - Remote branches `era2`, `era3-methodology`, `pairmode`, `pr-squashed` are
   historical; disposition can be decided in the same retirement phase.
 
@@ -182,7 +182,7 @@ both the 0.3.1-repo closeouts and the songline build.
 
 | Order | Phase | Content | Spec source |
 |---|---|---|---|
-| 1 | Harness retirement + merge-down | Merge `fold-prep` → main (preserving INFRA-332's 3 agent files); retire the release channel; rewrite `architecture.md` § Release channel; repoint flex's own `CLAUDE.build.md` `pairmode_scripts_dir` + call sites at the marketplace install (dogfood requirement); disposition of the `flex-harness` clone, `fold-prep`/`harness` branches, and historical remote branches | existing `phase-proposed-retire-harness-release-channel-20260804-001.md` — **needs stories** |
+| 1 | Harness retirement + merge-down | Merge `fold-prep` → main (preserving INFRA-332's 3 agent files); retire the release channel; rewrite `architecture.md` § Release channel; repoint flex's own `CLAUDE.build.md` `pairmode_scripts_dir` + call sites at the marketplace install (dogfood requirement); disposition of the `flex-harness` clone, `fold-prep`/`harness` branches, and historical remote branches | `docs/phases/phase-145.md` — stories INFRA-440/INFRA-441 |
 | 2 | State-lifecycle relief | F1–F4 (F5 optional): doctor-state, session-start orphan detection, frontmatter↔table cross-check, verdict-on-revision clear | **new spec** — file § 4 as CERs first |
 | 3 | Shadow handshake | CER-218 teardown fix **first**, then the three-artifact handshake, typed findings, builder dispositions (INFRA-438), reviewer consumption of the exchange record | scaffold `phase-proposed-shadow-handshake-20260807-003` + design note |
 | 4 | Measurement columns + dead code (memo W2) | cause-class column, silent-deviation marking, gate-worker retirement; cause-class is also era-5 salvage-manifest trigger data — "land exactly as specced" | scaffold `phase-proposed-measurement-columns-20260807-001` |
