@@ -21,7 +21,7 @@ Close CER-219: Phase 142/INFRA-412's oracle-based round-trip fix (verifying a ca
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-413 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | draft |
+| INFRA-413 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | complete |
 
 ## Schema delivery
 

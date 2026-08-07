@@ -2,7 +2,7 @@
 id: INFRA-413
 rail: INFRA
 title: Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219)
-status: draft
+status: complete
 phase: "143"
 story_class: code
 auth_gated: false
