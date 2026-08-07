@@ -1385,25 +1385,39 @@ mechanism: `pairmode_scripts_dir` now points at the marketplace-cache install pa
 `docs/harness-cutover-runbook.md` carries a final status note recording the retirement; it is
 closed history from Phase 145 onward.
 
-**How the marketplace install protects against the same RESOLVER-012..017 class of incident.**
-Those incidents were all instances of the build loop executing toolchain code that was itself
-being edited mid-phase — the loop and its own target moving under each other. The marketplace
-install closes that gap the same way the old channel did, by construction: `claude plugin install`
-copies the pinned tag's tree into a version-keyed cache directory
-(`~/.claude/plugins/cache/nullvalues-flex/flex/<version>/`) that is never written by the live
-working tree's edits. A story's in-flight changes to `skills/pairmode/scripts/` land in
-`/mnt/work/flex`, not in the cache directory `pairmode_scripts_dir` resolves to, so the executing
-toolchain cannot observe them until an operator deliberately bumps the version and reinstalls —
-the same "frozen until an explicit promotion step" property the old channel provided, now
-provided by install/reinstall discipline (§ Version-bump-before-reinstall discipline) instead of
-a checkpoint-time `git merge --ff-only`.
+**Which directory `pairmode_scripts_dir` actually resolves to — corrected (Phase 145 checkpoint
+finding, 2026-08-07).** The paragraph above described the *installed plugin cache*
+(`~/.claude/plugins/cache/nullvalues-flex/flex/<version>/`) — the directory `claude plugin
+install` populates and hooks execute from (Phase 120/CER-159's fix). That is not what
+`CLAUDE.build.md`'s `pairmode_scripts_dir` was actually repointed at. It resolves to
+`~/flex-marketplace-cache/flex-0.3.1/skills/pairmode/scripts` — the **marketplace source
+clone**, the `git`-cloned checkout that gets `marketplace add`ed as the *input* to an install
+(§ Self-hosted plugin installation, above), not the install's own output directory. These are
+two distinct directories on disk that happen to start from the same content at install time and
+then diverge: the install cache only advances via `claude plugin install`/reinstall; the source
+clone only advances via `git fetch` + `git checkout <tag>` inside it, run manually. Phase 145
+left the source clone pinned at whatever tag it happened to be checked out to at merge time
+(`cp-119`) — the checkpoint-security audit caught this as a required-never-written gap: the
+architecture doc's promotion story (bump version, reinstall) does not do anything to the
+directory the build loop actually executes.
 
-**Accepted trade-off.** Unlike the old channel, the marketplace install's "promotion" (reinstall)
-is not itself a mandated `checkpoint-tag` step — it depends on the operator remembering to bump
-the version and reinstall (INFRA-383/384 documented this as a manual discipline, not an automated
-one). This is a deliberate, accepted narrowing relative to the old channel's forced promotion at
-every checkpoint, not an oversight; hardening it further (e.g. gating or automating the
-reinstall) is out of scope for Phase 145 and remains open follow-on work if it proves necessary.
+**Interim mechanism, and the plan to close the gap.** Until Phase 7 of the 0.4.1 plan (fork prep
++ version bump, `docs/release-0-4-1-findings-20260807.md`) does a real version-keyed install at
+the 0.4.1 tag, `pairmode_scripts_dir` stays pointed at the marketplace source clone, kept current
+by directly advancing that clone's checkout — `git -C ~/flex-marketplace-cache/flex-0.3.1 fetch
+origin && git -C ~/flex-marketplace-cache/flex-0.3.1 checkout cp-<latest>` — at or shortly after
+each checkpoint-tag, an operator/orchestrator step, not an automated one. This still provides the
+same decoupling property RESOLVER-012..017 needed (a frozen snapshot independent of the live
+tree's mid-phase edits), it is just advanced by `git checkout` instead of `claude plugin install`
+for now. The source clone's directory name (`flex-0.3.1`) will read as misleading once 0.4.1 ships
+and the clone is superseded by a real `flex-0.4.1`-named install cache directory at Phase 7 —
+tracked there, not fixed here.
+
+**Accepted trade-off.** The source-clone advancement above is not itself a mandated
+`checkpoint-tag` step — it depends on an operator/orchestrator remembering to run it. This is a
+deliberate, accepted narrowing relative to the old channel's forced promotion at every checkpoint,
+not an oversight; hardening it further (e.g. making advancement a `checkpoint-tag` step, or
+completing the Phase 7 cutover to a real version-keyed install) is open follow-on work.
 
 **Resolution rule for procedure/skill docs vs. `flex_build.py` script invocations (CER-160).** A
 hardcoded marketplace-cache-absolute path resolves into the pinned install described above, which —

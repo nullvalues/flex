@@ -594,9 +594,9 @@ def _resolve_pairmode_scripts_dir(project_dir: Path) -> str:
     build worktree. If the target project's own ``CLAUDE.build.md`` already
     declares a ``pairmode_scripts_dir`` (the normal case for any
     already-bootstrapped/synced project, including flex's own dogfood binding
-    to the sibling flex-harness checkout — see docs/architecture.md § Release
-    channel — flex-harness), that declaration is authoritative and preserved
-    verbatim. Only a project with no declaration yet (a fresh bootstrap, or a
+    to the marketplace-cache install — see docs/architecture.md § Self-reference
+    decoupling — marketplace install), that declaration is authoritative and
+    preserved verbatim. Only a project with no declaration yet (a fresh bootstrap, or a
     pre-0.3.0 project that has never run ``sync-all --apply``) falls back to
     this script's own location — the same first-time-binding behavior
     ``bootstrap.py`` already uses.

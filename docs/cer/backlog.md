@@ -430,6 +430,7 @@ Not urgent, marginal value. Style, cosmetics, speculative improvements.
 
 | ID | Finding | Source | Date | Phase |
 |----|---------|--------|------|-------|
+| CER-241 | LOW: five rendered agent shells (`.claude/agents/{builder,intent-reviewer,loop-breaker,reviewer,security-auditor}.md`) still say "You are the X for the flex-harness project" in their opening line. Predates Phase 145/fold-prep entirely — traced via `git log --follow` to commit `9acb9145`, unrelated to this session's harness retirement (confirmed independently by both INFRA-440's own Evidence section and the Phase 145 checkpoint-security re-audit). Now additionally stale in a new way: the project the text names no longer exists as of Phase 145. Cosmetic only — these shells work correctly regardless of the self-description string. Found by the Phase 145 checkpoint security-auditor pass (2026-08-07). Fix direction: correct the agent-shell templates (`skills/pairmode/templates/` or wherever `sync-agents` sources this line from) to say "flex project", then run `sync-agents --apply`. .claude/agents/builder.md, .claude/agents/intent-reviewer.md, .claude/agents/loop-breaker.md, .claude/agents/reviewer.md, .claude/agents/security-auditor.md. | security-auditor | 2026-08-07 | 145 |
 
 
 

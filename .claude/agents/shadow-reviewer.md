@@ -50,7 +50,7 @@ for that case (INFRA-304 E13, verified against a bootstrapped fixture; see
 INFRA-304 § Evidence):
 
 ```
-/mnt/work/flex-harness/skills/pairmode/scripts/../../../skills/pairmode/skills/shadow-reviewer/procedure.md
+~/flex-marketplace-cache/flex-0.3.1/skills/pairmode/scripts/../../../skills/pairmode/skills/shadow-reviewer/procedure.md
 ```
 
 Read that file in full before doing anything else. The suggestions-file

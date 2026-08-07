@@ -11,16 +11,24 @@ whatever it points at, by construction — this reproduced live in INFRA-362's
 Phase 118 dogfood exercise, where a spec-writer instructed to use the absolute
 harness path found a stale, pre-checkpoint-promotion copy of its own procedure
 while the correct in-tree copy (already updated in the same phase) sat right
-there in the working tree. This inventory is retained as a historical/audit
-record: no remaining scan-surface reference is a live release-channel pin
-(all `flex-harness` literals left on the scan surface are the fixed
-bootstrapped-consumer fallback paths, or not-a-path docstring examples).
+there in the working tree. This inventory is retained as a historical/audit record. As of Phase 145
+(INFRA-440/441), `/mnt/work/flex-harness` no longer exists on disk at all —
+the release-channel worktree was folded into main and removed — so every
+remaining literal `flex-harness` reference on the scan surface is now
+either a not-a-path docstring example (pre-rename hook-path shapes,
+unrelated to this audit) or genuinely stale and should be fixed, not
+allowlisted. The nine rendered agent shells' absolute fallback pointer was
+repointed at the marketplace-cache install path
+(`test_rendered_agent_shells_carry_absolute_fallback`, below) rather than
+removed outright — the in-tree-preferring pointer still needs *some*
+absolute fallback for a bootstrapped consuming project with no vendored
+`skills/pairmode/` (INFRA-304 E13); it just no longer resolves through the
+retired release channel.
 
 This test file is the audit inventory the story owes (INFRA-375 Ensures 1):
 every literal `/mnt/work/flex-harness` reference on the scan surface below is
-either fixed out of existence (an in-tree-preferring pointer paragraph, for
-the nine agent templates and their rendered `.claude/agents/*.md` shells) or
-recorded here with a one-line rationale for why it legitimately survives.
+either fixed out of existence or recorded here with a one-line rationale for
+why it legitimately survives.
 
 Scan surface: `.claude/agents/`, `skills/`, `hooks/`, and root-level
 `CLAUDE.md` / `CLAUDE.build.md` — excluding `docs/`, `CHANGELOG.md`, `tests/`,
@@ -55,60 +63,6 @@ EXCLUDED_FILE_NAMES = {"CHANGELOG.md"}
 # REPO_ROOT) that legitimately contains the literal NEEDLE must be listed
 # here with a non-empty one-line rationale (INFRA-375 Ensures 1).
 ALLOWLIST = {
-    # --- rendered agent shells: fallback branch for a bootstrapped consuming
-    # project that has not vendored skills/pairmode/ in-tree (INFRA-304 E13).
-    # The in-tree branch (checked first) fires here since flex vendors its
-    # own skills/pairmode/, so this literal is dead code in this repo but
-    # load-bearing for every downstream fleet consumer — fixed disposition,
-    # not staleness risk (CER-160).
-    ".claude/agents/builder.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/reviewer.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/spec-writer.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/docs-reviewer.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/gate-worker.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/intent-reviewer.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/loop-breaker.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/security-auditor.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160)."
-    ),
-    ".claude/agents/shadow-reviewer.md": (
-        "fixed: in-tree-preferring pointer's fallback branch for a "
-        "bootstrapped consumer with no vendored skills/pairmode/ (INFRA-304 "
-        "E13); the in-tree branch wins in this repo (CER-160). Added by "
-        "INFRA-376 when this repo's own sync-agents was run for the first "
-        "time against the tenth (shadow-reviewer) template, closing the "
-        "dogfood gap CER-163 sub-finding (1) named."
-    ),
     # --- not-a-path: docstring/comment literals quoting the string as an
     # example of what a detector matches; no runtime path resolution happens.
     "skills/pairmode/scripts/hook_view.py": (
@@ -202,18 +156,38 @@ def test_scan_surface_matches_allowlist_exactly():
     )
 
 
+def _current_pairmode_scripts_dir() -> str:
+    """Read the live pairmode_scripts_dir value out of CLAUDE.build.md.
+
+    Reading it live (rather than hardcoding the marketplace-cache path)
+    keeps this test from going stale the next time pairmode_scripts_dir
+    moves (e.g. the Phase 7 version-keyed install cutover) — the same
+    class of drift this test exists to catch (INFRA-375/CER-160), applied
+    to itself.
+    """
+    text = (REPO_ROOT / "CLAUDE.build.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.strip().startswith("pairmode_scripts_dir"):
+            return line.split("=", 1)[1].strip()
+    raise AssertionError("CLAUDE.build.md has no pairmode_scripts_dir line")
+
+
 def test_rendered_agent_shells_carry_absolute_fallback():
     """No rendered shell under .claude/agents/ still carries the
     pre-INFRA-304 bare-relative pointer with no absolute fallback
-    (INFRA-375 Ensures 4)."""
+    (INFRA-375 Ensures 4). Post-Phase-145, the absolute fallback resolves
+    through the marketplace-cache install (docs/architecture.md § Self-
+    reference decoupling — marketplace install), not the retired
+    flex-harness release channel."""
+    fallback_needle = _current_pairmode_scripts_dir()
     agents_dir = REPO_ROOT / ".claude" / "agents"
     missing_fallback = []
     for path in sorted(agents_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
-        if NEEDLE not in text:
+        if fallback_needle not in text:
             missing_fallback.append(path.name)
 
     assert missing_fallback == ["reconstruction-agent.md"], (
         "expected exactly reconstruction-agent.md to lack the "
-        f"/mnt/work/flex-harness fallback pointer, got: {missing_fallback}"
+        f"{fallback_needle!r} fallback pointer, got: {missing_fallback}"
     )
