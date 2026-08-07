@@ -21,7 +21,7 @@ Close CER-214/215/216 with a single durable fix, not another narrow patch: story
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-412 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | draft |
+| INFRA-412 | Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216) | complete |
 
 ## Schema delivery
 

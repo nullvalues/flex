@@ -2,7 +2,7 @@
 id: INFRA-412
 rail: INFRA
 title: Durable oracle-based fix for story_new.py frontmatter round-trip (CER-214/215/216)
-status: draft
+status: complete
 phase: "142"
 story_class: code
 auth_gated: false
