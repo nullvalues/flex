@@ -1600,6 +1600,21 @@ operators read) rather than assuming a single call site, per the CER-170/180/181
 own lesson — `lesson_review.py`'s dependency on this same key shape was missed by
 INFRA-399's own touches/out-of-scope declaration and only surfaced later as CER-184.
 
+**Quality fixes on the same contract (Phase 137, INFRA-407, CER-182/184/185/202):** four
+residual gaps left behind by the Phases 123/128/129 key-shape change. `audit.py`'s
+stale-shape diagnostic now suggests a corrected key via the shared
+`_normalise_override_key` helper, so the suggested form always parses under the current
+shape (CER-182, previously the suggested correction could itself be invalid).
+`_normalise_override_key` is also now the single case/whitespace-handling rule shared by
+`audit.py` and `pairmode_drift_report.py` (via the same import chain described above), so
+a mixed-case override key can no longer be clean in one tool and a finding in the other
+(CER-185). `lesson_review.py`'s `.pairmode-drift-rejected` persistence now falls back to a
+read-only lookup under the pre-CER-181 key shape when the current-shape lookup misses, and
+rewrites the record under the current shape on that hit — stranded pre-change records
+become reachable again without a manual migration (CER-184). `audit.py`'s remediation text
+for an `.pairmode-overrides`-shape finding is now specific to that finding instead of the
+generic remediation string, which described an action that could not resolve it (CER-202).
+
 ### Rails and eras
 
 **Rails** are named architectural lanes. Each story belongs to one rail. Rail name + 3-digit
