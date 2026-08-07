@@ -1346,105 +1346,84 @@ so a claim never overrides commit evidence (CER-095.1).
     `state_utils.state_lock` / `update_state_json` (INFRA-285) — and is bounded, advisory and
     fail-open, matching the reasoning above: it narrows this window rather than closing it.
 
-### Release channel — flex-harness
+### Self-reference decoupling — marketplace install
+
+*(formerly "Release channel — flex-harness": this section describes the mechanism that replaced
+the flex-harness sibling-worktree release channel, retired in Phase 145 / INFRA-441. See below
+for what changed and why.)*
 
 flex dogfoods its own pairmode: `CLAUDE.build.md` sets `pairmode_scripts_dir =
-/mnt/work/flex-harness/skills/pairmode/scripts`, a **sibling git worktree**, not
-`/mnt/work/flex/skills/pairmode/scripts`. The orchestrator's build loop executes the toolchain out
-of that sibling worktree deliberately, and only fast-forwards it at checkpoints — it is never
-repointed at `main` directly.
+~/flex-marketplace-cache/flex-0.3.1/skills/pairmode/scripts`, a **version-keyed, read-only
+marketplace-plugin install** (`claude plugin install flex@nullvalues-flex`; see § Self-hosted
+plugin installation above), not `/mnt/work/flex/skills/pairmode/scripts`. The orchestrator's
+build loop executes the toolchain out of that install deliberately, and only picks up new code
+when the operator bumps the pinned version and reinstalls (§ Version-bump-before-reinstall
+discipline, above) — it is never repointed at `main` directly.
 
-**Why a separate worktree instead of pointing the loop at `main`.** If the live build loop executed
+**Why a pinned install instead of pointing the loop at `main`.** If the live build loop executed
 `skills/pairmode/scripts/` straight from the working tree it is itself building, every half-built
 story's CLI edits would take effect on the very loop building it mid-phase — a toolchain that
 changes under the harness while the harness is running is exactly the class of self-reference this
 project has already been bitten by (RESOLVER-012 through RESOLVER-017 were all incidents in this
-same file). Pinning the executed toolchain to the last checkpoint tag instead gives flex's own
-build loop the same property it gives downstream fleet consumers: the code that runs has passed all
-three checkpoint gates (`checkpoint-security`, `checkpoint-intent`, `checkpoint-docs`).
+same file). Pinning the executed toolchain to a fixed, version-keyed install instead gives flex's
+own build loop the same property it gives downstream fleet consumers: the code that runs is a known,
+frozen snapshot, not one that mutates under the loop mid-phase.
 
-**Mechanics.** `main` is the dev line. `/mnt/work/flex-harness` (branch `fold-prep`, tracking
-`origin/fold-prep`) is the pinned release channel — its `HEAD` is always some prior `cp-<phase>`
-tag. Promotion is a `git merge --ff-only` to the newest checkpoint tag, run **after** the three
-checkpoint gate workers have passed and the tag has been pushed — never before, since the entire
-point of the channel is that the executed toolchain is one that passed them. This is a checkpoint
-step (`CLAUDE.build.md` § Checkpoint, `checkpoint-tag` item 3), not an automatic or gated action;
-INFRA-260 deliberately left "automate/gate the promotion" out of scope — this story makes the step
-documented and verifiable, not enforced.
+**What changed in Phase 145 (INFRA-441/INFRA-440).** Before this phase, that same decoupling was
+provided by a **sibling git worktree**, `/mnt/work/flex-harness` (branch `fold-prep`), pinned to
+the newest checkpoint tag via a `git merge --ff-only` run as the last step of `checkpoint-tag`
+(`CLAUDE.build.md` § Checkpoint). `docs/architecture.md` previously stated that channel was
+*"permanent — no fold or teardown removes it."* Phase 120 (CER-159) built a second mechanism with
+the same self-reference-decoupling property, for an unrelated reason (fixing `${CLAUDE_PLUGIN_ROOT}`
+/ hook-firing breakage under inline registration): a marketplace-installed plugin copy, also
+version-keyed and decoupled from the live tree. Phase 145 concluded the two mechanisms were
+redundant — both produce a pinned, frozen copy independent of the working tree — and retired the
+flex-harness channel in favor of the marketplace install as flex's sole self-reference-decoupling
+mechanism: `pairmode_scripts_dir` now points at the marketplace-cache install path, the
+`checkpoint-tag` sequence no longer performs a promotion step (it ends at `git tag` + push), and
+`/mnt/work/flex-harness` itself was folded down / dispositioned by the sibling story INFRA-440.
+`docs/harness-cutover-runbook.md` carries a final status note recording the retirement; it is
+closed history from Phase 145 onward.
 
-**Promotion commands**, run from `/mnt/work/flex` unless noted, with `<cp-tag>` resolved (never
-assumed — existing tags use the `cp101-<slug>` shape, not a bare `cp-102`):
+**How the marketplace install protects against the same RESOLVER-012..017 class of incident.**
+Those incidents were all instances of the build loop executing toolchain code that was itself
+being edited mid-phase — the loop and its own target moving under each other. The marketplace
+install closes that gap the same way the old channel did, by construction: `claude plugin install`
+copies the pinned tag's tree into a version-keyed cache directory
+(`~/.claude/plugins/cache/nullvalues-flex/flex/<version>/`) that is never written by the live
+working tree's edits. A story's in-flight changes to `skills/pairmode/scripts/` land in
+`/mnt/work/flex`, not in the cache directory `pairmode_scripts_dir` resolves to, so the executing
+toolchain cannot observe them until an operator deliberately bumps the version and reinstalls —
+the same "frozen until an explicit promotion step" property the old channel provided, now
+provided by install/reinstall discipline (§ Version-bump-before-reinstall discipline) instead of
+a checkpoint-time `git merge --ff-only`.
 
-```bash
-# P1 — resolve the tag and verify the fast-forward is legitimate
-git -C /mnt/work/flex tag --list 'cp102*'
-git -C /mnt/work/flex-harness status --porcelain --untracked-files=no   # must be empty
-git -C /mnt/work/flex merge-base --is-ancestor \
-    "$(git -C /mnt/work/flex-harness rev-parse HEAD)" <cp-tag> && echo FF-OK
-
-# P2 — promote
-git -C /mnt/work/flex-harness merge --ff-only <cp-tag>
-
-# P3 — verify the pin
-git -C /mnt/work/flex-harness rev-parse HEAD
-git -C /mnt/work/flex rev-parse "<cp-tag>^{commit}"
-git -C /mnt/work/flex-harness describe --tags --exact-match HEAD
-
-# P4 — smoke the promoted toolchain (read-only)
-PATH=$HOME/.local/bin:$PATH uv run python \
-  /mnt/work/flex-harness/skills/pairmode/scripts/flex_build.py \
-  checkpoint-report --project-dir /mnt/work/flex
-```
-
-Three details are load-bearing, not incidental:
-
-- `--untracked-files=no` on the cleanliness check — as of INFRA-261 (CER-090) the vendored
-  `node_modules` payload is fully tracked and no longer the reason for this flag. The flag itself is
-  unchanged (out of scope for INFRA-261); it still guards against ordinary local build noise —
-  `.venv/`, `ui/dist`/`api/dist` build output, `__pycache__/`, and similar — that would otherwise
-  fail a naive cleanliness check even on a channel with no real drift.
-- `--ff-only` on the merge, never `--force` or `reset --hard` — a non-fast-forward means the sibling
-  worktree holds commits nobody has triaged, and the correct response is to **stop and investigate**,
-  not discard them.
-- Promotion happens **after** the checkpoint gates, never before — the channel's entire purpose is
-  that the toolchain it runs has already passed `checkpoint-security` / `checkpoint-intent` /
-  `checkpoint-docs`.
-
-**Ancestry precondition and failure rule.** The promotion is only legitimate when the harness
-worktree's current `HEAD` is an ancestor of the new tag (P1's `merge-base --is-ancestor` check). If
-it is not — the harness worktree has diverged, carrying commits the tag does not — the promotion
-does not proceed with `--force`, `reset --hard`, or a discard of the divergent commits; it stops,
-and the divergence is investigated and resolved (e.g. by rebuilding the harness worktree from the
-tag, or by determining the divergent commits were themselves a mistake) before any fast-forward is
-attempted.
-
-**The channel is permanent — no fold or teardown removes it.** `docs/harness-cutover-runbook.md`
-§ *Final fold sequence* was originally authored (`HARNESS001-ante1`) against a topology where this
-worktree was temporary; that premise never held past phase 102. `/mnt/work/flex-harness` is not
-scheduled for removal at any future fold, and the worktree/branch-removal steps the runbook once
-planned (and the story that would have executed them, `docs/stories/RELEASE/RELEASE-061.md`, now
-`status: skipped`) are retired and must never be run — see RELEASE-062 (phase 105). This section
-is the canonical statement of the release channel's disposition; the cutover runbook and any story
-file defer to it, not the reverse, on any disagreement.
+**Accepted trade-off.** Unlike the old channel, the marketplace install's "promotion" (reinstall)
+is not itself a mandated `checkpoint-tag` step — it depends on the operator remembering to bump
+the version and reinstall (INFRA-383/384 documented this as a manual discipline, not an automated
+one). This is a deliberate, accepted narrowing relative to the old channel's forced promotion at
+every checkpoint, not an oversight; hardening it further (e.g. gating or automating the
+reinstall) is out of scope for Phase 145 and remains open follow-on work if it proves necessary.
 
 **Resolution rule for procedure/skill docs vs. `flex_build.py` script invocations (CER-160).** A
-hardcoded `/mnt/work/flex-harness`-absolute path resolves into the release channel described above,
-which — by the mechanics just documented — only advances at checkpoint-tag. Any worker that resolves
-such a path is therefore running last-checkpoint's copy of whatever it points at, by construction,
-regardless of what has already landed in the current phase's working tree. This is the correct,
-deliberate behavior for `flex_build.py` **script** invocations (`CLAUDE.build.md`'s `next-action`,
-`create-story-worktree`, `merge-story-worktree`, and similar calls): the whole point of the channel
-is that the orchestrator drives the build loop with a toolchain that has already passed the three
-checkpoint gates, not with mid-phase, ungated edits to itself (see "Why a separate worktree instead
-of pointing the loop at `main`" above). It is the wrong behavior for procedure/skill **docs** — the
-`.md`/`.md.j2` pointer paragraphs that tell a spawned worker which procedure file to read — because
-those documents are meant to reflect the current phase's in-progress edits to the very procedure a
-builder or reviewer is about to follow; resolving them through the channel silently re-introduces a
-stale procedure mid-phase (reproduced live in INFRA-362's Phase 118 dogfood exercise, CER-160).
-Procedure/skill docs therefore prefer the project's own in-tree copy at the same repo-relative path
-when it exists, falling back to the harness-absolute path only for a bootstrapped consuming project
-that does not vendor `skills/pairmode/` — while `flex_build.py` script invocations stay pinned to the
-channel on purpose, unchanged by this rule.
+hardcoded marketplace-cache-absolute path resolves into the pinned install described above, which —
+by the mechanics just documented — only advances when an operator bumps the version and reinstalls.
+Any worker that resolves such a path is therefore running last-install's copy of whatever it points
+at, by construction, regardless of what has already landed in the current phase's working tree.
+This is the correct, deliberate behavior for `flex_build.py` **script** invocations
+(`CLAUDE.build.md`'s `next-action`, `create-story-worktree`, `merge-story-worktree`, and similar
+calls): the whole point of the pinned install is that the orchestrator drives the build loop with a
+toolchain that is a known, frozen snapshot, not one that mutates under the loop mid-phase (see "Why
+a pinned install instead of pointing the loop at `main`" above). It is the wrong behavior for
+procedure/skill **docs** — the `.md`/`.md.j2` pointer paragraphs that tell a spawned worker which
+procedure file to read — because those documents are meant to reflect the current phase's
+in-progress edits to the very procedure a builder or reviewer is about to follow; resolving them
+through the pinned install silently re-introduces a stale procedure mid-phase (reproduced live in
+INFRA-362's Phase 118 dogfood exercise, CER-160, against the flex-harness-worktree predecessor of
+this same mechanism). Procedure/skill docs therefore prefer the project's own in-tree copy at the
+same repo-relative path when it exists, falling back to the marketplace-cache-absolute path only
+for a bootstrapped consuming project that does not vendor `skills/pairmode/` — while `flex_build.py`
+script invocations stay pinned to the marketplace install on purpose, unchanged by this rule.
 
 ---
 

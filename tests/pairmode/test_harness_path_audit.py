@@ -2,14 +2,19 @@
 Tests for INFRA-375 (CER-160): audit hardcoded flex-harness absolute paths for
 release-channel staleness risk.
 
-A hardcoded `/mnt/work/flex-harness`-absolute path resolves into the release
-channel (docs/architecture.md § Release channel — flex-harness), which only
-advances at checkpoint-tag. A worker that resolves such a path mid-phase is
-therefore running last-checkpoint's copy of whatever it points at, by
-construction — this reproduced live in INFRA-362's Phase 118 dogfood exercise,
-where a spec-writer instructed to use the absolute harness path found a stale,
-pre-checkpoint-promotion copy of its own procedure while the correct in-tree
-copy (already updated in the same phase) sat right there in the working tree.
+A hardcoded `/mnt/work/flex-harness`-absolute path resolved into the release
+channel (formerly docs/architecture.md § Release channel — flex-harness,
+retired Phase 145 / INFRA-441 in favor of § Self-reference decoupling —
+marketplace install), which only advanced at checkpoint-tag. A worker that
+resolved such a path mid-phase was therefore running last-checkpoint's copy of
+whatever it points at, by construction — this reproduced live in INFRA-362's
+Phase 118 dogfood exercise, where a spec-writer instructed to use the absolute
+harness path found a stale, pre-checkpoint-promotion copy of its own procedure
+while the correct in-tree copy (already updated in the same phase) sat right
+there in the working tree. This inventory is retained as a historical/audit
+record: no remaining scan-surface reference is a live release-channel pin
+(all `flex-harness` literals left on the scan surface are the fixed
+bootstrapped-consumer fallback paths, or not-a-path docstring examples).
 
 This test file is the audit inventory the story owes (INFRA-375 Ensures 1):
 every literal `/mnt/work/flex-harness` reference on the scan surface below is
@@ -121,18 +126,16 @@ ALLOWLIST = {
         "0.2.x -> 0.3.0 migration classifier matches against; no runtime "
         "resolution."
     ),
-    # --- pinned-by-design: CLAUDE.build.md's flex_build.py script
-    # invocations are deliberately pinned to the release channel so the
-    # orchestrator's build loop always runs a checkpoint-gated toolchain,
-    # never mid-phase, ungated edits to itself (docs/architecture.md §
-    # Release channel — flex-harness). Byte-unchanged by this story
-    # (INFRA-375 Ensures 6) — this is the opposite disposition from the
-    # procedure/skill docs fixed above, on purpose.
-    "CLAUDE.build.md": (
-        "pinned-by-design: flex_build.py script invocations stay pinned to "
-        "the release channel on purpose, unlike procedure/skill docs "
-        "(CER-160; docs/architecture.md § Release channel — flex-harness)."
-    ),
+    # NOTE (Phase 145 / INFRA-441): CLAUDE.build.md's flex_build.py script
+    # invocations were repointed from the flex-harness release-channel
+    # worktree to the marketplace-cache install
+    # (~/flex-marketplace-cache/flex-0.3.1/skills/pairmode/scripts); the
+    # NEEDLE this file scans for no longer appears there, so the
+    # "pinned-by-design" allowlist entry that previously lived here is
+    # removed as stale, not because pinning-by-design stopped applying —
+    # `pairmode_scripts_dir` is still deliberately pinned, just to a
+    # different mechanism (docs/architecture.md § Self-reference decoupling
+    # — marketplace install).
 }
 
 

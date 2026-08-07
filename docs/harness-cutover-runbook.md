@@ -560,3 +560,18 @@ Authority for every section above:
 | Pre-fold discovery gate (DP8 hard gate) | DP8 line 316–324 |
 | Final fold sequence | DP5 line 209–211 |
 | Semantic separation (effort.db ≠ context-control) | DP7 line 254–267; codified comingling remediation line 269–280 |
+
+---
+
+## Final status (Phase 145, 2026-08-07)
+
+**The flex-harness release channel described throughout this runbook was retired in Phase 145**
+(`INFRA-441`, sibling story `INFRA-440`). `docs/architecture.md` § *Self-reference decoupling —
+marketplace install* (formerly § *Release channel — flex-harness*) is now the canonical statement
+of flex's self-reference-decoupling mechanism: a version-keyed marketplace-plugin install
+(Phase 120 / CER-159) replaces the `/mnt/work/flex-harness` sibling worktree this runbook
+documents. This runbook is closed history from Phase 145 onward — it is retained for its record
+of the 0.2.x → 0.3.0 migration mechanics and the sibling-worktree channel's rationale, but no part
+of it describes flex's current toolchain-execution path. Any disagreement between this runbook and
+`docs/architecture.md` § *Self-reference decoupling — marketplace install* resolves in the
+architecture doc's favor.
