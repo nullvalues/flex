@@ -21,7 +21,7 @@ Merge fold-prep into main (preserving INFRA-332's 3 agent files), retire the fle
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-441 | Repoint flex build loop at marketplace install; retire release-channel docs | draft |
+| INFRA-441 | Repoint flex build loop at marketplace install; retire release-channel docs | complete |
 | INFRA-440 | Merge fold-prep to main; disposition of flex-harness clone and stale remote branches | draft |
 
 ## Schema delivery
