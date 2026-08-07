@@ -21,7 +21,7 @@ Close CER-213: story_new.py's _yaml_block_scalar (CER-167/CER-211) escapes non-p
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-411 | Fix story_new.py writer/reader escaping mismatch (CER-213) | draft |
+| INFRA-411 | Fix story_new.py writer/reader escaping mismatch (CER-213) | complete |
 
 ## Schema delivery
 

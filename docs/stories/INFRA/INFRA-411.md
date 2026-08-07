@@ -2,7 +2,7 @@
 id: INFRA-411
 rail: INFRA
 title: Fix story_new.py writer/reader escaping mismatch (CER-213)
-status: draft
+status: complete
 phase: "141"
 story_class: code
 auth_gated: false
