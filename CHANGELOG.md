@@ -6,6 +6,9 @@ changes are marked `[pairmode]`; modifications to flex core are marked `[core]`.
 
 ## [Unreleased]
 
+### Fixed [pairmode] — Phase 142 (Durable oracle-based fix for story_new.py frontmatter round-trip, CER-214/215/216)
+- INFRA-412 replaced `story_new.py`'s hand-maintained unsafe-character denylist for `primary_files:`/`touches:` block-sequence items (CER-167/CER-211/CER-213's iterative patches) with an oracle-based design: a candidate rendering (bare, `"`-quoted, `'`-quoted) is round-tripped through the project's real reader (`schema_validator._parse_frontmatter`) before being emitted, and the writer raises rather than guesses when no candidate reads back byte-identical. This structurally closes the whole class of gap the three prior denylist patches kept reopening (CER-214: non-ASCII whitespace before `#`; CER-215/CER-216: a non-`MULTILINE` frontmatter regex that silently truncates the entire block on a `---`-suffixed or interior-quoted bare value) — a detection rule no longer needs to be complete, since correctness is verified empirically against the live reader on every write.
+
 ### Fixed [pairmode] — Phase 141 (Fix story_new.py writer/reader escaping mismatch, CER-213)
 - INFRA-411 fixed a writer/reader mismatch introduced by CER-167 (Phase 139): `_yaml_block_scalar` quoted non-plain values via `json.dumps`, assuming a `yaml.safe_load`-style reader that unescapes `\"`/`\\`/`\n`/`\t`, but the project's real reader (`schema_validator._parse_frontmatter` via `_strip_inline_comment`) strips one matching pair of outer quotes literally and never unescapes anything — silently corrupting a quoted value with an embedded quote, a real tab, or a real newline on read. Reworked the writer to emit literal single-quote wrapping matched to what the real reader actually does, raising `ValueError` when no representable quoting exists (embedded newline, or both quote characters present) rather than emitting a value that reads back wrong.
 
