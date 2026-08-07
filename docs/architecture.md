@@ -1727,6 +1727,20 @@ so a validator-only check would leave the live path unprotected.
 `primary_files` list when `status` is `draft` or `backlog`. Non-draft, non-backlog stories
 must have at least one entry in `primary_files`.
 
+**Writer-side quoting for `primary_files:`/`touches:` entries (CER-167, INFRA-409, Phase 139):**
+`story_new.py`'s `_yaml_block_scalar` helper decides whether a block-sequence item can be emitted
+bare or must be quoted (`json.dumps`-style) before this parser's inline-comment/flow-sequence
+rules above would otherwise mis-read it — a leading quote, a leading `#`, a `: `-bearing value, or
+an embedded newline all force quoting. This CER-167 version was superseded in Phase 142
+(INFRA-412, CER-214/215/216) by an oracle-based redesign: instead of a hand-maintained
+unsafe-character denylist, a candidate rendering is round-tripped through this same
+`_parse_frontmatter` before being emitted, and `story_new._yaml_block_scalar`/`_oracle_render`
+raises rather than guesses when no candidate reads back byte-identical. Phase 143 (INFRA-413)
+extended the same oracle design to the `title:`/`source:` scalar fields. Phase 144 (INFRA-415,
+CER-222) extended it a third time to `flex_build.py`'s mid-build `_append_touches_entry` (the
+`permissions-widen` scope-widening path), which previously wrote a widened path bare with no
+verification at all.
+
 ### Story classification
 
 Story files accept an optional `story_class` frontmatter field. Allowed values:
