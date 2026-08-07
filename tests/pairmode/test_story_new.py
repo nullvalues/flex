@@ -7,8 +7,6 @@ import pathlib
 import pytest
 from click.testing import CliRunner
 
-import json
-
 from skills.pairmode.scripts.story_new import (
     story_new,
     _story_frontmatter,
@@ -18,6 +16,7 @@ from skills.pairmode.scripts.story_new import (
     derive_test_paths,
 )
 from skills.pairmode.scripts.flex_build import _read_story_frontmatter
+from skills.pairmode.scripts.schema_validator import _parse_frontmatter
 
 
 # ---------------------------------------------------------------------------
@@ -1243,19 +1242,24 @@ def _extract_list_item_line(frontmatter: str, key: str) -> str:
 
 
 class TestYamlBlockScalarQuoting:
-    """Ensures 1 (CER-167): primary_files:/touches: entries survive a
-    yaml.safe_load-equivalent round-trip byte-identically for adversarial
-    values. json.dumps/json.loads is used as the round-trip oracle here: a
-    JSON double-quoted string is a valid YAML double-quoted scalar (the same
-    core escapes — \\", \\\\, \\n, \\t, \\uXXXX — mean the same thing in
-    both), so this is not a weaker substitute for yaml.safe_load, it is the
-    same result for the escape subset _yaml_block_scalar ever emits."""
+    """Ensures 1 (CER-167/CER-213): primary_files:/touches: entries survive a
+    round-trip through the *real* reader this project actually uses —
+    ``schema_validator._parse_frontmatter`` — byte-identically for adversarial
+    values. This reader strips one matching pair of outer quote characters
+    literally and never unescapes anything, so it is used directly as the
+    round-trip oracle here rather than ``json.loads``/``yaml.safe_load``,
+    neither of which reflects what this project's frontmatter parser
+    actually does on disk (CER-213)."""
 
     def _round_trip(self, value: str) -> str:
+        """Emit *value* via the real writer, then recover it via the real
+        reader (schema_validator._parse_frontmatter) as a primary_files:
+        list item — the actual round-trip path this project relies on."""
         emitted = _yaml_block_scalar(value)
-        if emitted.startswith('"'):
-            return json.loads(emitted)
-        return emitted
+        text = f"---\nprimary_files:\n  - {emitted}\n---\n"
+        fm = _parse_frontmatter(text)
+        assert fm is not None
+        return fm["primary_files"][0]
 
     # -- unit tests on the helper directly -----------------------------
 
@@ -1271,22 +1275,28 @@ class TestYamlBlockScalarQuoting:
     def test_value_with_leading_quote_is_quoted_and_round_trips(self) -> None:
         value = '"quoted-looking-path.py'
         assert self._round_trip(value) == value
+        # Neither quote char present but data quote is '"', so wrapped in "'".
+        assert _yaml_block_scalar(value) == f"'{value}'"
 
     def test_value_with_leading_hash_is_quoted_and_round_trips(self) -> None:
         value = "#not-a-comment.py"
         assert self._round_trip(value) == value
 
-    def test_value_with_embedded_newline_is_quoted_and_round_trips(self) -> None:
+    def test_value_with_embedded_newline_raises(self) -> None:
+        """A real newline cannot be represented as a single frontmatter line
+        by this project's line-based reader, regardless of quoting (CER-213)
+        — the writer must raise rather than silently corrupt on read."""
         value = "line-one.py\nline-two-injected"
-        assert self._round_trip(value) == value
+        with pytest.raises(ValueError):
+            _yaml_block_scalar(value)
 
     def test_value_with_embedded_space_hash_is_quoted_and_round_trips(
         self,
     ) -> None:
         """CER-211: a ' #' occurring anywhere in the scalar — not only at
         position 0 — is a YAML comment introducer and must be quoted, or a
-        subsequent yaml.safe_load silently truncates everything from the
-        ' #' onward."""
+        subsequent parse silently truncates everything from the ' #'
+        onward."""
         value = "foo bar #baz.py"
         assert self._round_trip(value) == value
         assert _yaml_block_scalar(value) != value  # must not stay bare
@@ -1302,10 +1312,30 @@ class TestYamlBlockScalarQuoting:
 
     def test_forbidden_proxy_value_not_altered(self) -> None:
         """The helper must not reject, strip, or sanitise — only re-encode.
-        json.loads(emitted) must equal the exact original string, not a
-        stripped/truncated variant."""
+        The value contains '"' but not "'", so it is wrapped in single
+        quotes; the round-trip through the real reader must equal the exact
+        original string, not a stripped/truncated variant."""
         value = '  leading/trailing spaces and a " quote  '
+        assert _yaml_block_scalar(value) == f"'{value}'"
         assert self._round_trip(value) == value
+
+    def test_value_with_real_tab_round_trips(self) -> None:
+        """CER-213 regression: a real tab character must round-trip exactly
+        through the real writer+reader pair — the case the old
+        json.dumps-based writer silently corrupted (emitted as literal
+        ``\\t``, which the real reader returns unchanged as backslash + 't',
+        not an actual tab)."""
+        value = "a\tb.py"
+        assert self._round_trip(value) == value
+
+    def test_value_with_both_quote_characters_raises(self) -> None:
+        """When *value* contains both '\"' and \"'\", no single quote
+        character in this reader's literal-strip scheme can wrap it — the
+        writer must raise rather than fall back to json.dumps escaping."""
+        value = "note: it's a \"quoted\" thing"
+        assert '"' in value and "'" in value
+        with pytest.raises(ValueError):
+            _yaml_block_scalar(value)
 
     # -- integration: through _story_frontmatter() and the story-file parser
 
@@ -1317,12 +1347,10 @@ class TestYamlBlockScalarQuoting:
             "INFRA-001", "INFRA", "Title", "1", primary_files=[value]
         )
         item = _extract_list_item_line(fm, "primary_files")
-        assert json.loads(item) == value
+        assert item == f'"{value}"'
 
         # Full parse (this project's own minimal-YAML frontmatter reader)
-        # must still succeed and yield the exact value back — the colon-space
-        # case's quoted form has no backslash escapes, so the project's own
-        # unescape-free quote-stripping recovers it exactly too.
+        # must still succeed and yield the exact value back.
         story_text = fm + _story_body()
         parsed = _read_story_frontmatter(_write_tmp_story(tmp_path, story_text))
         assert parsed["primary_files"] == [value]
@@ -1339,32 +1367,26 @@ class TestYamlBlockScalarQuoting:
             "INFRA-003", "INFRA", "Title", "1", primary_files=[value]
         )
         item = _extract_list_item_line(fm, "primary_files")
-        assert json.loads(item) == value
+        assert item == f'"{value}"'
 
         story_text = fm + _story_body()
         parsed = _read_story_frontmatter(_write_tmp_story(tmp_path, story_text))
         assert parsed["primary_files"] == [value]
 
-    def test_touches_entry_with_newline_round_trips_through_frontmatter(
-        self, tmp_path: pathlib.Path
+    def test_primary_files_entry_with_newline_raises_through_frontmatter(
+        self,
     ) -> None:
-        # Force a touches: entry via create_story's derived-test-path path is
-        # awkward for an adversarial value, so exercise _story_frontmatter's
-        # touches-loop by calling it directly is not possible (touches is
-        # derived internally) — instead confirm the same helper used for
-        # primary_files: is also used for touches: by checking both loops
-        # route through _yaml_block_scalar with an adversarial primary_files
-        # value whose derived test path does not exist on disk (so touches:
-        # stays empty and only primary_files: is exercised end-to-end here;
-        # the touches: loop's use of the same helper is covered directly by
-        # test_value_with_embedded_newline_is_quoted_and_round_trips above,
-        # since both loops call the identical function).
+        """CER-213: a primary_files:/touches: value with a real newline is
+        structurally unrepresentable as a single frontmatter line by this
+        project's reader — _story_frontmatter (via _yaml_block_scalar) must
+        raise rather than silently emit a corrupting line break. This
+        replaces the old round-trips-via-json.dumps expectation, which is no
+        longer correct behaviour (Ensures, CER-213)."""
         value = "weird\nname.py"
-        fm = _story_frontmatter(
-            "INFRA-002", "INFRA", "Title", "1", primary_files=[value]
-        )
-        item = _extract_list_item_line(fm, "primary_files")
-        assert json.loads(item) == value
+        with pytest.raises(ValueError):
+            _story_frontmatter(
+                "INFRA-002", "INFRA", "Title", "1", primary_files=[value]
+            )
 
 
 def _write_tmp_story(tmp_path: pathlib.Path, text: str) -> pathlib.Path:

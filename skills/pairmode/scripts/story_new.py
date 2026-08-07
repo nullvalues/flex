@@ -9,7 +9,6 @@ is prompted before it is created.  Optionally appends a row to a phase manifest.
 from __future__ import annotations
 
 import glob
-import json
 import re
 import sys
 from pathlib import Path
@@ -32,23 +31,40 @@ _YAML_PLAIN_UNSAFE_START = (
 
 
 def _yaml_block_scalar(value: str) -> str:
-    """Return *value* rendered as a single-line YAML scalar (CER-167).
+    """Return *value* rendered as a single-line YAML scalar (CER-167/CER-213).
 
     Emits *value* bare when it is a "plain" scalar safe to embed unquoted in
     a block-sequence list item (no leading indicator character, no embedded
     ``: ``, no trailing ``:``, no embedded newline/tab, no leading/trailing
-    whitespace); otherwise emits it via ``json.dumps``, whose escaping
-    (``\\"``, ``\\\\``, ``\\n``, ``\\t``, ``\\uXXXX``, ...) is a valid subset
-    of YAML's double-quoted scalar syntax, so the result is never malformed
-    YAML and a real ``yaml.safe_load`` (or ``json.loads`` on the same quoted
-    text) recovers *value* byte-identically — including an embedded newline,
-    which is escaped as ``\\n`` rather than emitted as a literal line break.
+    whitespace); otherwise wraps it in a single matching pair of quote
+    characters — ``"`` when *value* contains no ``"``, else ``'`` when
+    *value* contains no ``'`` — with *value*'s own bytes emitted literally
+    between them, with no backslash escaping of any kind.
 
-    Never rejects, strips, or otherwise alters *value* itself (INFRA-409
-    Ensures 1's forbidden proxy) — only the on-disk representation changes.
-    Does not touch the CER-092 title-quoting branch above; that branch's
-    ``#``-detection rule is for a top-level scalar (``title:``), not a
-    block-sequence list item, and is left as-is.
+    This project's only story-frontmatter reader,
+    ``schema_validator._parse_frontmatter`` (via ``_strip_inline_comment``),
+    strips one matching pair of outer quote characters *literally* and never
+    unescapes anything — it is not a ``yaml.safe_load``-style reader. Running
+    *value* through ``json.dumps`` before quoting it (the pre-CER-213
+    behaviour) therefore corrupted any value containing a quote character, a
+    real tab, or (round-tripped as a literal escape sequence rather than the
+    intended byte) any other backslash-escaped character on read: the
+    backslash sequence came back to the caller unchanged, as literal
+    backslash + letter, not as the character it was meant to represent. This
+    function never does that.
+
+    When neither quote character can safely wrap *value* (it contains both
+    ``"`` and ``'``), or *value* contains a real newline (structurally
+    unrepresentable as a single frontmatter line by this project's
+    line-based reader, regardless of quoting), this function raises
+    ``ValueError`` naming the unrepresentable value rather than emitting
+    something that would silently corrupt on read.
+
+    Never rejects, strips, or otherwise alters *value* itself in the cases it
+    does emit (INFRA-409 Ensures 1's forbidden proxy) — only the on-disk
+    representation changes. Does not touch the CER-092 title-quoting branch
+    above; that branch's ``#``-detection rule is for a top-level scalar
+    (``title:``), not a block-sequence list item, and is left as-is.
 
     CER-211: a ``#`` is a comment introducer per the YAML spec's plain
     scalar rules not only when it starts the scalar, but anywhere it is
@@ -69,7 +85,20 @@ def _yaml_block_scalar(value: str) -> str:
     )
     if is_plain:
         return value
-    return json.dumps(value)
+    if "\n" in value:
+        raise ValueError(
+            f"cannot represent value with an embedded newline as a single "
+            f"frontmatter line: {value!r}"
+        )
+    if '"' not in value:
+        return f'"{value}"'
+    if "'" not in value:
+        return f"'{value}'"
+    raise ValueError(
+        f"cannot represent value containing both '\"' and \"'\" — no single "
+        f"quote character in this reader's literal-strip scheme can wrap "
+        f"it: {value!r}"
+    )
 
 
 def derive_test_paths(primary_files: list[str], project_dir: Path | str) -> list[str]:
