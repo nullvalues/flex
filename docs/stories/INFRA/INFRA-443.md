@@ -12,6 +12,7 @@ touches:
   - hooks/session_start.py
   - tests/pairmode/test_session_orphan_notice.py
   - tests/pairmode/test_session_start_hook.py
+  - skills/pairmode/skills/security-auditor/procedure.md
 narrative_roles: []
 ---
 
@@ -38,6 +39,13 @@ INFRA-442 complete: `diagnose_state(project_path, *, max_age_hours=None)` exists
 in `skills/pairmode/scripts/flex_build.py` and returns the `orphans` /
 `in_flight` / `status_drift` classification with no writes. This story consumes
 that function and reimplements none of its detection.
+
+
+## Scope widenings
+
+| path | reason | widened_at |
+| --- | --- | --- |
+| skills/pairmode/skills/security-auditor/procedure.md | Document hooks/session_start.py's new session_orphan_notice import in the security-auditor thin-delegation exception block, required for test_hook_delegations_are_documented_exceptions to pass (INFRA-443). | 2026-08-08T04:36:40Z |
 
 ## Ensures
 

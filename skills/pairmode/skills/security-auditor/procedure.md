@@ -113,9 +113,16 @@ state.json writes. They do not violate the thin-relay contract.
   `session_state.session_view` — a single pure call, wrapped in its own
   best-effort try/except, that reads (never writes) the
   `agent_surfaces_written_at`/`agent_surfaces_written_by` stamp and returns at
-  most one advisory line. Authorized state.json writes:
-  the context-token count baseline, its recorded-at timestamp, and the
-  session-reset timestamp.
+  most one advisory line. Also calls `session_orphan_notice.orphan_state_notice`
+  (INFRA-443) every run, in its own best-effort try/except, to render a
+  read-only SessionStart advisory line from INFRA-442's
+  `flex_build.diagnose_state` classification of orphaned worktree/stamp/
+  permissions claims and status drift — the hook never scans
+  `.pairmode-worktrees/`, `.companion/state.json`, or
+  `docs/phases/permissions/` itself, it only forwards the call and appends
+  the returned line (or nothing) to the status block. Authorized state.json
+  writes: the context-token count baseline, its recorded-at timestamp, and
+  the session-reset timestamp.
 - `hooks/user_prompt_submit.py` — dispatches every `UserPromptSubmit` event →
   `user_turn_seq.py` (INFRA-192/INFRA-248): a single delegated call to
   `user_turn_seq.record_user_turn(project_dir, data)`, no decision logic, no

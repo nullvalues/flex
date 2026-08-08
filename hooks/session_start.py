@@ -20,6 +20,17 @@ clobbering the build loop's counter. The reset write, the non-reset session
 seed, and the stale-entry prune are folded into **one** locked
 read-modify-write via ``state_utils``' single-call update helper — the hook
 stays a thin relay with a single state write per invocation.
+
+This hook also makes three bounded, best-effort delegated calls, each in its
+own ``try/except Exception: pass`` so a raise in any one never affects the
+others or the hook's exit status: the counter-reset dispatch above,
+``skills/pairmode/scripts/subagent_transcript.reconcile_pending_attempts()``
+(INFRA-258, a catch-up sweep of effort.db rows left pending by an async
+spawn), and ``skills/pairmode/scripts/session_orphan_notice.orphan_state_notice()``
+(INFRA-443, a read-only advisory line surfacing INFRA-442's
+``diagnose_state()`` classification of orphaned worktree/stamp/permissions
+claims and status drift — fail-open and performs no writes or repair of its
+own).
 """
 import json
 import sys
@@ -182,11 +193,28 @@ def main() -> None:
     except Exception:
         pass
 
+    # INFRA-443: best-effort, read-only advisory surfacing INFRA-442's
+    # diagnose_state() classification (orphaned worktree/stamp/permissions
+    # claims, and frontmatter/phase-table status drift) at the exact moment
+    # it is cheapest to notice — the SessionStart immediately following the
+    # session that left it behind. Own try/except, same shape as the
+    # staleness-notice and reconcile_pending_attempts calls above: a raise
+    # here must never affect the hook's exit status or the rest of the
+    # status block, and this path performs no writes and no repair.
+    orphan_notice: str | None = None
+    try:
+        from session_orphan_notice import orphan_state_notice
+        orphan_notice = orphan_state_notice(Path(".").resolve())
+    except Exception:
+        pass
+
     lines: list[str] = [f"Pairmode v{pairmode_version} is active in this repo."]
     if reset_notice:
         lines.append(reset_notice)
     if staleness_notice:
         lines.append(staleness_notice)
+    if orphan_notice:
+        lines.append(orphan_notice)
 
     # Current story
     story = state.get("current_story")

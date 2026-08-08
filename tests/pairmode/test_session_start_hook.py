@@ -655,3 +655,233 @@ def test_stamp_then_clear_round_trip_writer_and_reader_both_exist(tmp_path):
     assert result.returncode == 0
     ctx = _additional_context(result.stdout)
     assert "bootstrap" in ctx
+
+
+# ---------------------------------------------------------------------------
+# INFRA-443 — session_orphan_notice advisory (Ensures 1/2/3/6)
+# ---------------------------------------------------------------------------
+
+import subprocess as _subprocess  # noqa: E402
+import json as _json  # noqa: E402
+
+
+def _git(project: Path, *args: str) -> subprocess.CompletedProcess:
+    return _subprocess.run(
+        ["git", *args], cwd=str(project), capture_output=True, text=True
+    )
+
+
+def _init_git_repo(project: Path) -> None:
+    _git(project, "init", "-q")
+    _git(project, "config", "user.email", "test@example.com")
+    _git(project, "config", "user.name", "Test")
+    _git(project, "config", "commit.gpgsign", "false")
+    (project / "README.md").write_text("init\n", encoding="utf-8")
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "initial")
+
+
+def _write_story_frontmatter(
+    project: Path, story_id: str, *, phase: str = "146", status: str = "planned"
+) -> Path:
+    rail = story_id.split("-", 1)[0]
+    story_dir = project / "docs" / "stories" / rail
+    story_dir.mkdir(parents=True, exist_ok=True)
+    story_path = story_dir / f"{story_id}.md"
+    story_path.write_text(
+        "---\n"
+        f"id: {story_id}\n"
+        f"rail: {rail}\n"
+        f"phase: '{phase}'\n"
+        "story_class: code\n"
+        f"status: {status}\n"
+        "primary_files: []\n"
+        "touches: []\n"
+        "---\n\n"
+        "## Acceptance criterion\n\n_(fill in)_\n",
+        encoding="utf-8",
+    )
+    return story_path
+
+
+def _make_real_worktree(project: Path, story_id: str) -> Path:
+    """Create a real `git worktree add`-created worktree + branch for
+    *story_id* (INFRA-442's own fixture convention:
+    `.pairmode-worktrees/<ID>/` on branch `pairmode/<ID>`)."""
+    wt_rel = Path(".pairmode-worktrees") / story_id
+    wt_abs = project / wt_rel
+    wt_abs.parent.mkdir(parents=True, exist_ok=True)
+    branch = f"pairmode/{story_id}"
+    result = _git(project, "worktree", "add", "-b", branch, str(wt_rel), "HEAD")
+    assert result.returncode == 0, result.stderr
+    return wt_abs
+
+
+def _write_permissions_artifact(project: Path, story_id: str) -> Path:
+    perm_dir = project / "docs" / "phases" / "permissions"
+    perm_dir.mkdir(parents=True, exist_ok=True)
+    path = perm_dir / f"{story_id}.json"
+    path.write_text(_json.dumps({"story_id": story_id, "allowed_paths": []}), encoding="utf-8")
+    return path
+
+
+def test_orphan_f1_scenario_surfaces_advisory_without_touching_artifacts(tmp_path):
+    """Ensures 1: real worktree + branch, stale current_stories entry,
+    current_story mirror, and a permissions artifact — the advisory names
+    the ID and instructs doctor-state --apply, and all four artifacts
+    survive byte-identically (forbidden proxy: repairing anything)."""
+    _init_git_repo(tmp_path)
+    story_id = "DOC-101"
+    _write_story_frontmatter(tmp_path, story_id)
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "add story")
+
+    wt = _make_real_worktree(tmp_path, story_id)
+    stale_set_at = "2020-01-01T00:00:00Z"
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "current_stories": {story_id: {"id": story_id, "set_at": stale_set_at}},
+            "current_story": {"id": story_id, "set_at": stale_set_at},
+        },
+    )
+    artifact = _write_permissions_artifact(tmp_path, story_id)
+
+    before_state = _read_state_file(tmp_path)
+    before_perm = artifact.read_bytes()
+
+    result = _run_hook(tmp_path, tempdir=tmp_path)
+    assert result.returncode == 0, result.stderr
+    ctx = _additional_context(result.stdout)
+    assert story_id in ctx
+    assert "doctor-state" in ctx
+    assert "--apply" in ctx
+
+    # Forbidden proxy: all four artifacts must survive byte-identically.
+    assert wt.is_dir()
+    assert wt.exists()
+    assert _git(tmp_path, "branch", "--list", f"pairmode/{story_id}").stdout.strip() != ""
+    assert _read_state_file(tmp_path) == before_state
+    assert artifact.exists() and artifact.read_bytes() == before_perm
+
+
+def test_orphan_f2_scenario_surfaces_advisory(tmp_path):
+    """Ensures 2: worktree/branch + permissions artifact present, no
+    state.json stamps at all (post-clear-stale-stories residue) — still
+    surfaced, not treated as clean."""
+    _init_git_repo(tmp_path)
+    story_id = "DOC-102"
+    _write_story_frontmatter(tmp_path, story_id)
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "add story")
+
+    wt = _make_real_worktree(tmp_path, story_id)
+    artifact = _write_permissions_artifact(tmp_path, story_id)
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+
+    before_perm = artifact.read_bytes()
+
+    result = _run_hook(tmp_path, tempdir=tmp_path)
+    assert result.returncode == 0, result.stderr
+    ctx = _additional_context(result.stdout)
+    assert story_id in ctx
+    assert "doctor-state" in ctx
+
+    assert wt.is_dir()
+    assert _git(tmp_path, "branch", "--list", f"pairmode/{story_id}").stdout.strip() != ""
+    assert artifact.exists() and artifact.read_bytes() == before_perm
+
+
+def test_no_orphans_no_drift_emits_no_advisory(tmp_path):
+    """Ensures 3: a clean project emits no doctor-state line; the status
+    block is otherwise unchanged."""
+    _init_git_repo(tmp_path)
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+
+    result = _run_hook(tmp_path, tempdir=tmp_path)
+    assert result.returncode == 0, result.stderr
+    ctx = _additional_context(result.stdout)
+    assert "doctor-state" not in ctx
+    assert "Pairmode v0.1.0 is active" in ctx
+
+
+def test_in_flight_fresh_stamp_emits_no_advisory(tmp_path):
+    """Ensures 3: a story classified in_flight (fresh stamp) must stay
+    silent — mid-build compact/clear restarts stay quiet."""
+    _init_git_repo(tmp_path)
+    story_id = "DOC-103"
+    _write_story_frontmatter(tmp_path, story_id)
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "add story")
+
+    wt = _make_real_worktree(tmp_path, story_id)
+    fresh_set_at = datetime.now(timezone.utc).isoformat()
+    _write_state(
+        tmp_path,
+        {
+            "pairmode_version": "0.1.0",
+            "current_stories": {story_id: {"id": story_id, "set_at": fresh_set_at}},
+            "current_story": {"id": story_id, "set_at": fresh_set_at},
+        },
+    )
+
+    result = _run_hook(tmp_path, tempdir=tmp_path)
+    assert result.returncode == 0, result.stderr
+    ctx = _additional_context(result.stdout)
+    assert "doctor-state" not in ctx
+    assert wt.is_dir()
+
+
+def test_status_drift_only_names_sync_status_not_apply(tmp_path):
+    """Ensures 4 (hook level): the only finding is status_drift — the
+    advisory names --sync-status and never --apply."""
+    _init_git_repo(tmp_path)
+    story_id = "DOC-104"
+    _write_story_frontmatter(tmp_path, story_id, phase="146", status="complete")
+    phases_dir = tmp_path / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    (phases_dir / "146-orphan-notice-test.md").write_text(
+        "# Phase 146\n\n## Stories\n\n"
+        "| Story | Title | Status |\n| --- | --- | --- |\n"
+        f"| {story_id} | Some story | planned |\n",
+        encoding="utf-8",
+    )
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "add story + phase")
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+
+    result = _run_hook(tmp_path, tempdir=tmp_path)
+    assert result.returncode == 0, result.stderr
+    ctx = _additional_context(result.stdout)
+    assert story_id in ctx
+    assert "--sync-status" in ctx
+    assert "--apply" not in ctx
+
+
+def test_orphan_notice_failure_does_not_break_status_block(tmp_path):
+    """Ensures 6: a raising orphan_state_notice must not break the hook's
+    exit status or the rest of the status block — same failure isolation
+    as the agent_staleness_notice blow-up test above."""
+    _write_state(tmp_path, {"pairmode_version": "0.1.0"})
+
+    scripts_dir = Path(__file__).resolve().parent.parent.parent / "skills" / "pairmode" / "scripts"
+    stub_path = scripts_dir / "session_orphan_notice.py"
+    original = stub_path.read_text(encoding="utf-8")
+    try:
+        stub_path.write_text(
+            original.replace(
+                "def orphan_state_notice(",
+                "def orphan_state_notice_ORIG_UNUSED(",
+            )
+            + "\n\ndef orphan_state_notice(*args, **kwargs):\n"
+            "    raise RuntimeError('boom — orphan check exploded')\n",
+            encoding="utf-8",
+        )
+        result = _run_hook(tmp_path, tempdir=tmp_path)
+    finally:
+        stub_path.write_text(original, encoding="utf-8")
+
+    assert result.returncode == 0
+    ctx = _additional_context(result.stdout)
+    assert "Pairmode v0.1.0 is active" in ctx

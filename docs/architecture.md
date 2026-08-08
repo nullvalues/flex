@@ -26,7 +26,7 @@ flex/
     post_tool_use.py              ← pair partner: relay file changes; Task/Agent branch: reads JSONL via context_budget.read_current_tokens() and writes context_current_tokens to state.json (INFRA-182); also calls subagent_transcript.record_attempt_from_transcript() to write one effort.db attempt row per spawn (INFRA-236)
     session_end.py                ← signal sidebar to summarize and exit
     pre_tool_use.py               ← thin dispatcher: Task|Agent → context_budget.py (CER-027 budget enforcement, CER-049 matcher rename; INFRA-199 scoped to tool_input.subagent_type ∈ build-cycle agents only); Edit/Write → scope_guard.py (Phase 55 file-scope enforcement); Read → cold_read_guard.py (INFRA-196 cold-read enforcement, registered/reachable since INFRA-205/INFRA-206, CER-065); Bash → reviewer_bash_guard.py (INFRA-324 reviewer-role git-subcommand allowlist enforcement; INFRA-388/396/397 add a separate, stricter shadow-reviewer default-deny branch; fails open for any other agent_type)
-    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180); also calls session_lifecycle.agent_staleness_notice() on clear/compact (INFRA-323 — see § Session-lifecycle contract)
+    session_start.py              ← thin dispatcher: SessionStart source → session_reset.py on clear/startup (CER-047 / Phase 68 INFRA-175); stdlib + skill import; one hook-owned state write (context_current_tokens + context_current_tokens_recorded_at + context_session_reset_at on clear/startup — INFRA-180); also calls session_lifecycle.agent_staleness_notice() on clear/compact (INFRA-323 — see § Session-lifecycle contract); also calls session_orphan_notice.orphan_state_notice() every run, own try/except, to surface INFRA-442's diagnose_state() orphan/status-drift classification as a read-only advisory line (INFRA-443)
 
   skills/
     pairmode/                     ← /flex:pairmode — bootstrap and manage pairmode
@@ -4022,12 +4022,22 @@ state.json value written by the most recent PostToolUse invocation or the Sessio
 baseline.
 
 **Documented exception — `hooks/session_start.py` (CER-047 / Phase 68 INFRA-175;
-extended INFRA-258):** `session_start.py` makes two bounded delegated calls: the
-counter-reset dispatch below, and a best-effort
+extended INFRA-258, INFRA-443):** `session_start.py` makes three bounded delegated
+calls: the counter-reset dispatch below (which itself nests the
+`session_lifecycle.agent_staleness_notice()` advisory read, INFRA-323, in its own
+inner try/except — see § Session-lifecycle contract), a best-effort
 `subagent_transcript.reconcile_pending_attempts()` catch-up (INFRA-258) that backfills
 tokens/outcome for async-spawn effort rows left unreconciled by a prior session —
 bounded (RECONCILE_MAX_ROWS/LINES), wrapped in its own try/except, and unable to
-affect the reset decision or exit status. The reset dispatch:
+affect the reset decision or exit status — and a best-effort
+`session_orphan_notice.orphan_state_notice()` call (INFRA-443) that renders a
+read-only SessionStart advisory line from INFRA-442's `flex_build.diagnose_state()`
+classification of orphaned worktree/stamp/permissions claims and frontmatter/
+phase-table status drift. Like the reconcile sweep, it is wrapped in its own
+top-level try/except, performs no writes or repair of its own — all classification
+and rendering live in `session_orphan_notice.py`, the hook only appends the
+returned line to the status block when it is not `None` — and cannot affect the
+reset decision or exit status. The reset dispatch:
 
 - **`source` ∈ {`clear`, `startup`} → `session_reset.py`:** resets the live context
   counter to a fresh-session baseline (`state["context_baseline_tokens"]` if set,
