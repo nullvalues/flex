@@ -2557,6 +2557,328 @@ def _format_age_hours(set_at: "str | None") -> str:
 
 
 # ---------------------------------------------------------------------------
+# doctor-state (INFRA-442, CER-236/CER-237/CER-238)
+# ---------------------------------------------------------------------------
+
+
+def diagnose_state(
+    project_path: Path, *, max_age_hours: "float | None" = None
+) -> dict:
+    """Classify every story with any claim artifact into ``orphans``,
+    ``in_flight``, and ``status_drift``.
+
+    Pure read: performs no writes and no ``git`` mutations. ``doctor-state``
+    is a thin printer (and, under ``--apply``/``--sync-status``, a thin
+    repairer) over this function's output — mirrors
+    `collectable_permission_artifacts`'s classifier/command split.
+
+    The candidate ID set is the union of `claimed_story_ids()` (worktree
+    directories), the `current_stories` keys, the `current_story` mirror ID,
+    and every `docs/phases/permissions/*.json` filename that parses as a
+    story ID. Classification is a **whitelist of reasons to retain**
+    (mirroring `collectable_permission_artifacts`'s own rationale): a
+    candidate with a fresh keyed `current_stories` entry, or a fresh
+    `current_story` mirror naming it, is ``in_flight``; everything else is an
+    ``orphan``. A worktree directory with no stamp at all is still an
+    orphan — that is precisely F2's post-partial-repair state (CER-237).
+
+    Each orphan dict carries the artifacts actually observed for it:
+    ``has_worktree``, ``has_stale_stamp`` (a `current_stories[story_id]`
+    entry exists, however stale), ``mirror_names`` (the flat `current_story`
+    mirror names this story, for reporting — set alongside `has_stale_stamp`
+    on the common F1 shape since both are written together by
+    `set_current_story`), ``mirror_only`` (the narrower legacy repair-path
+    flag: `current_stories` is entirely empty/absent *and* the flat mirror
+    names this story — the exact post-`clear-stale-stories --apply` residue
+    F2 exercises, repaired via the unscoped `clear_current_story` call
+    rather than the scoped one), and ``has_permissions_artifact``.
+
+    ``status_drift`` is a separate, independent scan (F3/CER-238): every
+    `docs/phases/*.md` doc's `## Stories` table row is paired against the
+    matching story file's frontmatter `status:`; a mismatch is recorded as
+    ``(story_id, frontmatter_status, table_status)``. This scan is not
+    gated on the candidate ID set above — a story can have drifted status
+    with no worktree/stamp/permissions artifact at all.
+
+    Returns empty lists (never raises) when `.pairmode-worktrees/`,
+    `.companion/`, `docs/phases/permissions/`, or `docs/stories/` are
+    absent.
+    """
+    cutoff = max_age_hours if max_age_hours is not None else STATE_STORY_MAX_AGE_HOURS
+    companion_dir = project_path / ".companion"
+
+    try:
+        claimed = claimed_story_ids(project_path)
+    except Exception:  # noqa: BLE001
+        claimed = set()
+
+    try:
+        state = read_state(companion_dir)
+    except Exception:  # noqa: BLE001
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+
+    keyed = state.get(CURRENT_STORIES_KEY)
+    keyed = keyed if isinstance(keyed, dict) else {}
+    keyed_empty = not keyed
+    mirror = state.get("current_story")
+    mirror_id = mirror.get("id") if isinstance(mirror, dict) else None
+
+    perm_dir = project_path / "docs" / "phases" / "permissions"
+    perm_ids: set[str] = set()
+    if perm_dir.is_dir():
+        try:
+            perm_entries = list(perm_dir.iterdir())
+        except OSError:
+            perm_entries = []
+        for entry in perm_entries:
+            try:
+                is_file = entry.is_file()
+            except OSError:
+                continue
+            if is_file and entry.suffix == ".json" and _STORY_ID_RE.match(entry.stem):
+                perm_ids.add(entry.stem)
+
+    candidate_ids: set[str] = set(claimed) | set(keyed.keys()) | perm_ids
+    if mirror_id:
+        candidate_ids.add(mirror_id)
+
+    orphans: list[dict] = []
+    in_flight: list[dict] = []
+
+    for story_id in sorted(candidate_ids):
+        entry = keyed.get(story_id)
+        entry_fresh = entry_is_fresh(entry, max_age_hours=cutoff) if entry is not None else False
+        mirror_names = mirror_id == story_id
+        mirror_fresh = mirror_names and entry_is_fresh(mirror, max_age_hours=cutoff)
+
+        if entry_fresh or mirror_fresh:
+            reason = "fresh current_stories entry" if entry_fresh else "fresh current_story mirror"
+            in_flight.append({"story_id": story_id, "reason": reason})
+            continue
+
+        has_worktree = story_id in claimed or (
+            project_path / ".pairmode-worktrees" / story_id
+        ).is_dir()
+        has_stale_stamp = story_id in keyed
+        # `mirror_only` selects the repair strategy — the legacy "no keyed
+        # entries at all" shape (`_clear_stale_stories_body`'s C4) where the
+        # only way to clear the mirror is the unscoped
+        # `clear_current_story(companion_dir, None)` call. `mirror_names`
+        # (below) is the broader reporting fact — the mirror stales this
+        # story regardless of whether a keyed entry also exists — because
+        # the F1 case (a fresh `create-story-worktree` stamp gone stale)
+        # writes both the keyed entry and the mirror together, and the
+        # operator-facing report should name the mirror as present either
+        # way, even though clearing the keyed entry via `_clear_active_story`
+        # already re-points/removes a mirror that names *this* story too
+        # (`clear_current_story`'s own re-point/removal contract).
+        mirror_only = mirror_names and keyed_empty and not has_stale_stamp
+
+        orphans.append(
+            {
+                "story_id": story_id,
+                "has_worktree": has_worktree,
+                "has_stale_stamp": has_stale_stamp,
+                "mirror_names": mirror_names,
+                "mirror_only": mirror_only,
+                "has_permissions_artifact": story_id in perm_ids,
+            }
+        )
+
+    status_drift: list[tuple[str, str, str]] = []
+    phases_dir = project_path / "docs" / "phases"
+    if phases_dir.is_dir():
+        try:
+            phase_files = sorted(phases_dir.glob("*.md"))
+        except OSError:
+            phase_files = []
+        for phase_path in phase_files:
+            try:
+                phase_text = phase_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for story_id, _title, table_status in _parse_phase_stories_with_status(
+                phase_text
+            ):
+                if not _STORY_ID_RE.match(story_id) or not table_status:
+                    continue
+                story_path = _story_path(story_id, project_path)
+                if not story_path.exists():
+                    continue
+                try:
+                    fm = _read_story_frontmatter(story_path)
+                except Exception:  # noqa: BLE001
+                    continue
+                fm_status_raw = fm.get("status")
+                fm_status = (
+                    str(fm_status_raw).strip().lower() if fm_status_raw else ""
+                )
+                if not fm_status or fm_status == table_status:
+                    continue
+                status_drift.append((story_id, fm_status, table_status))
+
+    return {
+        "orphans": orphans,
+        "in_flight": in_flight,
+        "status_drift": status_drift,
+    }
+
+
+def _orphan_artifact_desc(orphan: dict) -> str:
+    """Render the artifact list for an orphan's report/repair line."""
+    parts: list[str] = []
+    if orphan["has_worktree"]:
+        parts.append("worktree")
+    if orphan["has_stale_stamp"]:
+        parts.append("current_stories stamp")
+    if orphan["mirror_names"]:
+        parts.append("current_story mirror")
+    if orphan["has_permissions_artifact"]:
+        parts.append("permissions artifact")
+    return ", ".join(parts) if parts else "no artifacts"
+
+
+@flex_build.command("doctor-state")
+@click.option(
+    "--project-dir",
+    default=".",
+    type=click.Path(file_okay=False, dir_okay=True),
+    help="Project root directory.",
+)
+@click.option(
+    "--max-age-hours",
+    default=None,
+    type=float,
+    help=(
+        "Override scope_guard.STATE_STORY_MAX_AGE_HOURS for this run. "
+        "Defaults to the module constant so the CLI and the guard can "
+        "never disagree about what 'stale' means."
+    ),
+)
+@click.option(
+    "--apply",
+    is_flag=True,
+    default=False,
+    help=(
+        "Repair every orphan's claim artifacts (worktree, branch, stamps, "
+        "permissions artifact, gate verdict). Without this flag, only "
+        "reports. Never resolves status-drift rows — that requires "
+        "--sync-status."
+    ),
+)
+@click.option(
+    "--sync-status",
+    "sync_status",
+    default=None,
+    type=click.Choice(["frontmatter", "table"]),
+    help=(
+        "Resolve every reported status-drift row by writing the named "
+        "surface's value into the other ('frontmatter' writes into the "
+        "phase table; 'table' writes into the story frontmatter). Omitted: "
+        "drift is reported but never resolved, in both report and --apply "
+        "modes."
+    ),
+)
+def cmd_doctor_state(
+    project_dir: str,
+    max_age_hours: "float | None",
+    apply: bool,
+    sync_status: "str | None",
+) -> None:
+    """Report (default) or repair (--apply) orphaned story claim artifacts;
+    cross-check and optionally resolve (--sync-status) frontmatter/phase-
+    table status drift.
+
+    CER-236/F1: a session that dies mid-story leaves ``.pairmode-worktrees/
+    <ID>/`` (plus its ``pairmode/<ID>`` branch), the ``current_stories[<ID>]``
+    stamp, the flat ``current_story`` mirror, and
+    ``docs/phases/permissions/<ID>.json`` behind with no recovery path —
+    `claimed_story_ids()` then reports the story as claimed forever.
+    CER-237/F2: the narrower `clear-stale-stories` clears only the
+    state.json stamps, leaving the worktree/branch behind, which then makes
+    a retry's `create-story-worktree` fail on "worktree already exists".
+    `--apply` here performs the *complete* teardown+clear set
+    `discard-story-worktree` already performs, on every classified orphan.
+
+    CER-238/F3: a story's frontmatter ``status:`` disagreeing with its
+    phase-doc Stories-table Status cell is reported on a
+    ``status-drift <ID> frontmatter=<a> table=<b>`` line in both modes;
+    `--apply` alone never resolves it (an auto-flip could make `next_action`
+    skip an unbuilt story) — only the explicit `--sync-status` flag does.
+
+    Exit codes: report mode (no `--apply`) always exits 0. `--apply` exits 1
+    when any orphan's worktree/branch teardown left residue (that orphan's
+    remaining artifacts — stamps, permissions artifact, gate verdict — are
+    left untouched, and `_residue_lines` output goes to stderr); it exits 0
+    when every attempted repair completed.
+    """
+    project_path = Path(project_dir).resolve()
+    _depth_guard(project_path)
+
+    diagnosis = diagnose_state(project_path, max_age_hours=max_age_hours)
+    orphans = diagnosis["orphans"]
+    in_flight = diagnosis["in_flight"]
+    status_drift = diagnosis["status_drift"]
+
+    companion_dir = project_path / ".companion"
+    exit_code = 0
+
+    for entry in in_flight:
+        click.echo(f"in-flight {entry['story_id']} — {entry['reason']}")
+
+    for orphan in orphans:
+        story_id = orphan["story_id"]
+        artifact_desc = _orphan_artifact_desc(orphan)
+
+        if not apply:
+            click.echo(f"[would] repair {story_id} — {artifact_desc}")
+            continue
+
+        residue: list[str] = []
+        if orphan["has_worktree"]:
+            residue = _teardown_story_worktree(project_path, story_id)
+
+        if residue:
+            for line in _residue_lines(story_id, residue):
+                click.echo(line, err=True)
+            exit_code = 1
+            continue
+
+        # Instructions #3: residue-first ordering — clear stamps/artifacts
+        # only once teardown (when a worktree existed) fully succeeded.
+        if orphan["has_stale_stamp"]:
+            _clear_active_story(project_path, story_id)
+        elif orphan["mirror_only"]:
+            # Legacy shape (no keyed entries at all): mirrors
+            # `_clear_stale_stories_body`'s C4 — the unscoped clear is safe
+            # here precisely because there is no keyed entry left to protect.
+            try:
+                clear_current_story(companion_dir, None)
+            except Exception:  # noqa: BLE001
+                pass
+
+        clear_permissions_artifact(story_id, project_path)
+        _clear_gate_verdict(project_path, story_id)
+
+        click.echo(f"[apply] repaired {story_id} — {artifact_desc}")
+
+    for story_id, fm_status, table_status in status_drift:
+        click.echo(
+            f"status-drift {story_id} frontmatter={fm_status} table={table_status}"
+        )
+        if sync_status == "frontmatter":
+            update_phase_story_status(story_id, project_path, fm_status)
+            click.echo(f"[apply] synced {story_id} table -> {fm_status}")
+        elif sync_status == "table":
+            update_story_status(story_id, project_path, table_status)
+            click.echo(f"[apply] synced {story_id} frontmatter -> {table_status}")
+
+    sys.exit(exit_code)
+
+
+# ---------------------------------------------------------------------------
 # Story cost estimate (INFRA-135)
 # ---------------------------------------------------------------------------
 

@@ -7,8 +7,9 @@ phase: "146"
 story_class: code
 auth_gated: false
 schema_introduces: false
-touches:
+primary_files:
   - skills/pairmode/scripts/flex_build.py
+touches:
   - tests/pairmode/test_flex_build_doctor_state.py
   - .companion/state.json
 narrative_roles: []
