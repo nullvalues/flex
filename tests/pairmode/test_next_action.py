@@ -2523,6 +2523,86 @@ class TestGateVerdictOnceOnlyRoundTrip:
         assert action_after["scalar"] == "TEST-341B"
 
 
+class TestGateVerdictInvalidatedOnStoryEdit:
+    """INFRA-444: a recorded gate verdict is trusted only while the story
+    file's content is byte-identical to what it was when the verdict was
+    recorded. CER-239/F4 (docs/release-0-4-1-findings-20260807.md)."""
+
+    def test_editing_story_after_verdict_invalidates_it(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-4441", "draft")])
+        story_path = _write_story(tmp_path, "TEST-4441", schema_introduces=True)
+        _patch_git_log(monkeypatch, "")
+
+        # Record a clean verdict for the story as it exists right now.
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-4441", "--project-dir", str(tmp_path)],
+            input=json.dumps({"schema": "clean", "auth": "clean"}),
+        )
+        assert result.exit_code == 0, result.output
+
+        # Unedited: the recorded verdict is trusted and routes to spawn-builder.
+        pos_trusted = infer_position(tmp_path)
+        assert pos_trusted["gate_verdict"] is not None
+        action_trusted = resolve_next_action(pos_trusted)
+        assert action_trusted["action"] == SPAWN_BUILDER
+        assert action_trusted["scalar"] == "TEST-4441"
+
+        # Rewrite the story file's body — spec revised after the verdict
+        # was recorded.
+        story_path.write_text(
+            story_path.read_text(encoding="utf-8").replace(
+                "It works as designed.", "It works completely differently now."
+            ),
+            encoding="utf-8",
+        )
+
+        # A fresh infer_position must no longer trust the stale verdict —
+        # gate_verdict is None and resolve_next_action re-emits
+        # spawn-gate-worker rather than routing on judged-but-obsolete text.
+        pos_after_edit = infer_position(tmp_path)
+        assert pos_after_edit["gate_verdict"] is None
+        action_after_edit = resolve_next_action(pos_after_edit)
+        assert action_after_edit["action"] == SPAWN_GATE_WORKER
+        assert action_after_edit["scalar"] == "TEST-4441"
+
+    def test_unedited_story_still_routes_via_recorded_verdict(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Control case: no edit occurs, so the recorded verdict continues
+        to be trusted exactly as it was pre-INFRA-444."""
+        from next_action import resolve_next_action  # type: ignore[import]
+        from flex_build import cmd_record_gate_verdict  # type: ignore[import]
+        from click.testing import CliRunner
+
+        _write_index(tmp_path, [("1", "Phase 1", "active")])
+        _write_phase(tmp_path, "1", [("TEST-4442", "draft")])
+        _write_story(tmp_path, "TEST-4442", schema_introduces=True)
+        _patch_git_log(monkeypatch, "")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cmd_record_gate_verdict,
+            ["--story-id", "TEST-4442", "--project-dir", str(tmp_path)],
+            input=json.dumps({"schema": "clean", "auth": "clean"}),
+        )
+        assert result.exit_code == 0, result.output
+
+        pos_after = infer_position(tmp_path)
+        assert pos_after["gate_verdict"] is not None
+        action_after = resolve_next_action(pos_after)
+        assert action_after["action"] == SPAWN_BUILDER
+        assert action_after["scalar"] == "TEST-4442"
+
+
 class TestRecordGateVerdictStubInjection:
     """record-gate-verdict's CLI-boundary stub-default-injection (Ensures 3):
     a real gate-worker's raw two-key stdout must not fail-close via

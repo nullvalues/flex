@@ -303,6 +303,7 @@ INFRA-340 (Phase 117 -- close the F3/F4 cold-eyes gaps left by INFRA-333):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -314,6 +315,28 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from table_utils import split_table_row  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Story-content hashing (INFRA-444)
+# ---------------------------------------------------------------------------
+
+
+def story_content_hash(path: "str | Path") -> "str | None":
+    """Return the SHA-256 hexdigest of *path*'s raw bytes, or ``None`` when
+    the file cannot be read.
+
+    Single definition shared by both the recorder (``flex_build.py
+    cmd_record_gate_verdict``, which hashes the story file at record time)
+    and the reader (this module's ``infer_position`` section 8, which
+    re-hashes the story file at read time) — so the two sides can never
+    disagree about what "the same story content" means. Hashes raw bytes,
+    not decoded text, so the comparison is exact regardless of encoding.
+    """
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Schema version
@@ -1143,7 +1166,13 @@ def infer_position(project_dir: "str | Path") -> dict:
         (``state.json["gate_verdict"][next_story_id]``), or None when
         ``next_story_id`` is None or no verdict has been recorded yet for it
         (INFRA-341). Fail-open: any missing file, missing key, non-dict
-        value, or parse error also yields None.
+        value, or parse error also yields None. INFRA-444: also None when
+        the story file's current content hash no longer matches
+        ``state.json["gate_verdict_story_hash"][next_story_id]`` recorded
+        at verdict time — an edited story invalidates a stale verdict. A
+        story file that cannot itself be hashed (unreadable) still trusts
+        the recorded verdict unchanged (avoids a re-gate loop neither side
+        can resolve).
     """
     from next_story import find_next_story  # type: ignore[import]
     from model_selector import select_builder_model  # type: ignore[import]
@@ -1486,6 +1515,11 @@ def infer_position(project_dir: "str | Path") -> dict:
     # outer dict and the per-story value). Pure read: this module never
     # writes this key.
     # ------------------------------------------------------------------
+    # INFRA-444: a recorded verdict is trusted only while the story file's
+    # content is byte-identical to what it was when the verdict was
+    # recorded — an edit to the story spec after the verdict was judged
+    # invalidates it, so a rewritten "## Ensures" can never be routed to
+    # spawn-builder on the strength of a verdict that judged different text.
     gate_verdict: "dict[str, str] | None" = None
     if next_story_id is not None:
         try:
@@ -1498,6 +1532,18 @@ def infer_position(project_dir: "str | Path") -> dict:
                         candidate_verdict_map = verdicts.get(next_story_id)
                         if isinstance(candidate_verdict_map, dict):
                             gate_verdict = candidate_verdict_map
+                            current_hash = None
+                            if next_story_file and next_story_file != "UNRESOLVED":
+                                current_hash = story_content_hash(next_story_file)
+                            if current_hash is not None:
+                                hashes = raw_state3.get("gate_verdict_story_hash")
+                                recorded_hash = (
+                                    hashes.get(next_story_id)
+                                    if isinstance(hashes, dict)
+                                    else None
+                                )
+                                if recorded_hash is None or recorded_hash != current_hash:
+                                    gate_verdict = None
         except Exception:  # noqa: BLE001
             pass
 

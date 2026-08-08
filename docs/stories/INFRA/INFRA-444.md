@@ -126,3 +126,31 @@ Acceptance: both green.
   `SCHEMA_VERSION` bump, no change to `route_gate_verdict`'s aggregation.
 - Detecting revisions of files the story merely references (phase doc, era doc)
   — only the story file's own content is hashed.
+
+## Evidence
+
+Covered-contracts gate (INFRA-317): `next_action.py` is in `primary_files`/
+`touches` and is covered by the `## Module structure::skills/pairmode/scripts/next_action.py`
+pair. Both the doc section and the source file were read in full before any
+edit. Relied-on contract lines from `docs/architecture.md` § Module structure
+(the `next_action.py` bullet, pre-existing INFRA-341 clause):
+
+> `infer_position` gains `gate_verdict` (`dict[str, str] | None`, read from
+> `state.json["gate_verdict"][next_story_id]`, mirrors `pre_build_intent_verdict`'s
+> fail-open read shape exactly); Row 4b now calls
+> `route_gate_verdict(position["gate_verdict"], next_story_id, meta_base=meta)`
+> ... whenever a verdict has been recorded, falling back to (re-)emitting
+> `spawn-gate-worker` (unchanged) only when none has; `flex_build.py
+> record-gate-verdict` is the new CLI writer ... then persists to
+> `state.json["gate_verdict"][story_id]` via `_atomic_write_json`);
+> `merge-story-worktree`/`discard-story-worktree` both clear the recorded
+> verdict for their story_id, mirroring the existing attempt-counter/active-
+> story/permissions clears; grammar-unchanged (no new action type, no
+> `ACTIONS`/`_SPAWN_ACTIONS` membership change, no `SCHEMA_VERSION` bump)
+
+No divergence found between the doc and the source (`next_action.py`'s
+section-8 read and `flex_build.py`'s `cmd_record_gate_verdict`/
+`_clear_gate_verdict` matched the documented shape exactly). This story
+appends a new sentence to the same bullet, in place, rather than changing the
+quoted contract — see `docs/architecture.md` § Module structure, the
+sentence beginning "2026-08-08 INFRA-444:".

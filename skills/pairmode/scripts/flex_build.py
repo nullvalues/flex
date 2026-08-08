@@ -128,13 +128,15 @@ def _stamp_active_story(
 
 
 def _clear_gate_verdict(project_path: Path, story_id: str) -> None:
-    """Pop *story_id*'s entry from ``state.json["gate_verdict"]``, if present.
+    """Pop *story_id*'s entry from ``state.json["gate_verdict"]`` (and its
+    sibling ``state.json["gate_verdict_story_hash"]`` entry, INFRA-444), if
+    present.
 
     INFRA-341: mirrors ``clear_attempt_count``/``_clear_active_story``/
     ``clear_permissions_artifact`` — a story that has landed or been
     discarded must not leave a stale recorded gate verdict behind for a
     future re-attempt of the same story_id to silently reuse. Writes back
-    via ``_atomic_write_json`` only when a key was actually removed, to
+    via ``_atomic_write_json`` only when either map actually changed, to
     avoid a needless write/lock on the common case where no verdict was
     ever recorded for this story. Silent no-op when ``.companion/state.json``
     does not exist or is malformed.
@@ -148,11 +150,19 @@ def _clear_gate_verdict(project_path: Path, story_id: str) -> None:
             return
     except (json.JSONDecodeError, OSError):
         return
+    changed = False
     verdicts = state.get("gate_verdict")
-    if not isinstance(verdicts, dict) or story_id not in verdicts:
+    if isinstance(verdicts, dict) and story_id in verdicts:
+        verdicts.pop(story_id, None)
+        state["gate_verdict"] = verdicts
+        changed = True
+    hashes = state.get("gate_verdict_story_hash")
+    if isinstance(hashes, dict) and story_id in hashes:
+        hashes.pop(story_id, None)
+        state["gate_verdict_story_hash"] = hashes
+        changed = True
+    if not changed:
         return
-    verdicts.pop(story_id, None)
-    state["gate_verdict"] = verdicts
     _atomic_write_json(state_path, state)
 
 
@@ -4957,8 +4967,20 @@ def cmd_record_gate_verdict(story_id: str, project_dir: str) -> None:
     *stored value*, never a CLI failure. A worker crash or garbage stdout
     must still leave durable evidence the resolver can act on, not silently
     vanish.
+
+    INFRA-444: alongside the verdict, records the story file's current
+    content hash (``next_action.story_content_hash``) into the sibling map
+    ``state.json["gate_verdict_story_hash"][story_id]`` — never inside the
+    verdict map itself, since ``gate_verdict.validate_verdict_map`` rejects
+    any key outside ``JUDGED_GATES``. ``next_action.py``'s section-8 read
+    compares this against the story file's hash at read time and distrusts
+    the verdict on any mismatch. An unreadable story file writes no hash
+    entry (and drops any stale one for this story_id).
     """
-    from next_action import parse_worker_verdict_json  # type: ignore[import]
+    from next_action import (  # type: ignore[import]
+        parse_worker_verdict_json,
+        story_content_hash,
+    )
 
     raw_text = sys.stdin.read()
 
@@ -4997,6 +5019,27 @@ def cmd_record_gate_verdict(story_id: str, project_dir: str) -> None:
         verdicts = {}
     verdicts[story_id] = verdict_map
     state["gate_verdict"] = verdicts
+
+    # INFRA-444: record the story file's current content hash alongside the
+    # verdict, in a sibling map — gate_verdict.validate_verdict_map rejects
+    # any key outside JUDGED_GATES, so the hash cannot live inside the
+    # verdict map itself. next_action.py's section-8 read compares this
+    # against the story file's hash at read time to invalidate a verdict
+    # that judged text the story no longer contains. Unreadable story file
+    # → write no hash entry (and drop any stale one for this story_id).
+    hashes = state.get("gate_verdict_story_hash")
+    if not isinstance(hashes, dict):
+        hashes = {}
+    try:
+        story_path = _story_path(story_id, project_path)
+        current_hash = story_content_hash(story_path)
+    except ValueError:
+        current_hash = None
+    if current_hash is not None:
+        hashes[story_id] = current_hash
+    else:
+        hashes.pop(story_id, None)
+    state["gate_verdict_story_hash"] = hashes
 
     _atomic_write_json(state_path, state)
 

@@ -1435,6 +1435,43 @@ class TestStoryWorktreeLifecycle:
         state_after = json.loads(state_path.read_text(encoding="utf-8"))
         assert "WT-101" not in state_after.get("gate_verdict", {})
 
+    def test_merge_story_worktree_clears_gate_verdict_story_hash(
+        self, tmp_path: Path
+    ) -> None:
+        """INFRA-444: the sibling gate_verdict_story_hash entry recorded
+        alongside a gate verdict must also be cleared on merge, leaving no
+        orphan hash behind for a future re-attempt of the same story_id."""
+        _init_git_repo(tmp_path)
+        _write_story(tmp_path, "WT-102")
+        record = subprocess.run(
+            [
+                sys.executable, str(_SCRIPT),
+                "record-gate-verdict",
+                "--story-id", "WT-102",
+                "--project-dir", str(tmp_path),
+            ],
+            input=json.dumps({"schema": "clean", "auth": "clean"}),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "PYTHONPATH": str(_REPO_ROOT)},
+        )
+        assert record.returncode == 0, record.stderr
+        state_path = tmp_path / ".companion" / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-102" in state["gate_verdict_story_hash"]
+
+        _create_worktree(tmp_path, "WT-102")
+        wt = tmp_path / ".pairmode-worktrees" / "WT-102"
+        _commit_in(wt, "feature.txt", "done\n", "add feature")
+        result = _run(
+            "merge-story-worktree",
+            "--story-id", "WT-102",
+            "--project-dir", str(tmp_path),
+        )
+        assert result.returncode == 0, result.stderr
+        state_after = json.loads(state_path.read_text(encoding="utf-8"))
+        assert "WT-102" not in state_after.get("gate_verdict_story_hash", {})
+
     def test_merge_story_worktree_flips_story_status_to_complete(
         self, tmp_path: Path
     ) -> None:
