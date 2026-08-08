@@ -42,4 +42,4 @@ Placeholder era opened at 0.3.1 sealing; real scope to be defined as maintenance
 | 143 | Extend oracle-based round-trip fix to title/source frontmatter scalars (CER-219) | complete |
 | 144 | Harden title/path serialization at two live writer gaps (CER-221/222) | complete |
 | 145 | Retire flex-harness release channel; merge fold-prep to main | complete |
-| 146 | State-lifecycle relief: doctor-state, session-start orphan detection, gate-verdict invalidation | planned |
+| 146 | State-lifecycle relief: doctor-state, session-start orphan detection, gate-verdict invalidation | complete |
