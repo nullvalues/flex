@@ -25,6 +25,7 @@ _SCRIPTS_DIR = _REPO_ROOT / "skills" / "pairmode" / "scripts"
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+import flex_build as flex_build_mod  # type: ignore[import]  # noqa: E402
 from flex_build import diagnose_state, flex_build  # type: ignore[import]  # noqa: E402
 
 
@@ -96,6 +97,47 @@ def _write_phase_doc(project: Path, phase: str, rows: list[tuple[str, str, str]]
         lines.append(f"| {story_id} | {title} | {status} |")
     phase_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return phase_path
+
+
+def _write_phase_doc_std(project: Path, phase: str, rows: list[tuple[str, str, str]]) -> Path:
+    """Write a minimal phase doc at the **production** naming convention
+    (``docs/phases/phase-<ref>.md``, matching `resolve_current_phase` /
+    `_active_phase_candidates`), unlike `_write_phase_doc`'s test-only
+    ``<phase>-doctor-state-test.md`` name. INFRA-445's index-driven
+    allow-list keys off this exact filename, so the new closed-phase-scoping
+    tests need this variant.
+    """
+    phases_dir = project / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    phase_path = phases_dir / f"phase-{phase}.md"
+    lines = [f"# Phase {phase}", "", "## Stories", "", "| Story | Title | Status |", "| --- | --- | --- |"]
+    for story_id, title, status in rows:
+        lines.append(f"| {story_id} | {title} | {status} |")
+    phase_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return phase_path
+
+
+def _write_phase_index(project: Path, rows: list[tuple[str, str]]) -> Path:
+    """Write ``docs/phases/index.md`` with a minimal Phase table.
+
+    *rows* is a list of ``(phase_ref, status)`` tuples — mirrors the real
+    index's ``| Phase | Title | Status | Tag |`` columns (title/tag are
+    filler; only ``phase_ref``/``status`` are load-bearing for
+    `_parse_index_phases`).
+    """
+    phases_dir = project / "docs" / "phases"
+    phases_dir.mkdir(parents=True, exist_ok=True)
+    index_path = phases_dir / "index.md"
+    lines = [
+        "# Phase Index",
+        "",
+        "| Phase | Title | Status | Tag |",
+        "|-------|-------|--------|-----|",
+    ]
+    for phase_ref, status in rows:
+        lines.append(f"| {phase_ref} | Phase {phase_ref} title | {status} | tag-{phase_ref} |")
+    index_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return index_path
 
 
 def _write_permissions_artifact(project: Path, story_id: str) -> Path:
@@ -497,3 +539,209 @@ def test_report_mode_exit_0_and_apply_exit_0_on_clean_repair(tmp_path: Path) -> 
 
     apply_result = _run_doctor(project, "--apply")
     assert apply_result.exit_code == 0, apply_result.output
+
+
+# ---------------------------------------------------------------------------
+# INFRA-445 — active-phase scoping (checkpoint-security remediation)
+# ---------------------------------------------------------------------------
+#
+# The live BUILD-024..028/BUILD-001 shapes: a closed/checkpointed phase's
+# residual claim artifacts and stale frontmatter/table drift must stop being
+# reported as if they were live signal, while the same shapes in a still-open
+# phase must keep being reported exactly as before this story.
+
+
+def test_closed_phase_stale_permissions_artifact_not_orphan(tmp_path: Path) -> None:
+    """Ensures 1: closed-phase stale permissions artifact, no state.json
+    stamp (the live BUILD-024..028 shape) — `orphans` carries no entry."""
+    project = _make_project(tmp_path)
+    story_id = "DOC-021"
+    _write_story(project, story_id, phase="90", status="complete")
+    _write_phase_doc_std(project, "90", [(story_id, "Some story", "complete")])
+    _write_phase_index(project, [("90", "complete")])
+    _write_permissions_artifact(project, story_id)
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "closed phase residue")
+
+    diagnosis = diagnose_state(project)
+
+    assert not any(o["story_id"] == story_id for o in diagnosis["orphans"])
+
+
+def test_open_phase_stale_permissions_artifact_still_orphan(tmp_path: Path) -> None:
+    """Regression control for Ensures 1: the identical shape in a phase
+    still open by the index's own Status column stays a reported orphan."""
+    project = _make_project(tmp_path)
+    story_id = "DOC-022"
+    _write_story(project, story_id, phase="91", status="complete")
+    _write_phase_doc_std(project, "91", [(story_id, "Some story", "complete")])
+    _write_phase_index(project, [("91", "active")])
+    _write_permissions_artifact(project, story_id)
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "open phase residue")
+
+    diagnosis = diagnose_state(project)
+
+    assert any(o["story_id"] == story_id for o in diagnosis["orphans"])
+
+
+def test_closed_phase_status_drift_excluded(tmp_path: Path) -> None:
+    """Ensures 2: closed-phase frontmatter/table mismatch (the live
+    BUILD-001 shape) — `status_drift` carries no entry for that pair.
+
+    **Forbidden proxy check**: the scoping must live in `diagnose_state`
+    itself, not merely in `orphan_state_notice`'s rendering — this test
+    calls `diagnose_state` directly.
+    """
+    project = _make_project(tmp_path)
+    story_id = "DOC-023"
+    _write_story(project, story_id, phase="92", status="complete")
+    _write_phase_doc_std(project, "92", [(story_id, "Some story", "planned")])
+    _write_phase_index(project, [("92", "complete")])
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "closed phase drift")
+
+    diagnosis = diagnose_state(project)
+
+    assert not any(row[0] == story_id for row in diagnosis["status_drift"])
+
+
+def test_open_phase_status_drift_still_detected(tmp_path: Path) -> None:
+    """Regression control for Ensures 2: the identical mismatch in a phase
+    still open by the index's own Status column is still reported."""
+    project = _make_project(tmp_path)
+    story_id = "DOC-024"
+    _write_story(project, story_id, phase="93", status="complete")
+    _write_phase_doc_std(project, "93", [(story_id, "Some story", "planned")])
+    _write_phase_index(project, [("93", "active")])
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "open phase drift")
+
+    diagnosis = diagnose_state(project)
+
+    assert (story_id, "complete", "planned") in diagnosis["status_drift"]
+
+
+def test_unusual_own_status_not_narrowed_by_closed_phase(tmp_path: Path) -> None:
+    """Ensures 3: a story whose own frontmatter status is not one of
+    complete/merged/deferred/backlog is classified exactly as before, even
+    when its phase is closed — the fix narrows what counts as closed, it
+    does not add a new closed-status value."""
+    project = _make_project(tmp_path)
+    story_id = "DOC-025"
+    _write_story(project, story_id, phase="94", status="draft")
+    _write_phase_doc_std(project, "94", [(story_id, "Some story", "complete")])
+    _write_phase_index(project, [("94", "complete")])
+    _write_permissions_artifact(project, story_id)
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "unusual own status")
+
+    diagnosis = diagnose_state(project)
+
+    assert any(o["story_id"] == story_id for o in diagnosis["orphans"])
+
+
+def test_malformed_candidate_ids_excluded_everywhere(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Ensures 4: a malformed `current_stories` key / `current_story` mirror
+    ID (shell-metacharacter and path-traversal shapes) is excluded from the
+    candidate set entirely — absent from `orphans`/`in_flight`/
+    `status_drift`, and under `--apply` never reaches
+    `_teardown_story_worktree`/`clear_permissions_artifact` (asserted via
+    monkeypatch spies, not by inspecting the classification alone)."""
+    project = _make_project(tmp_path)
+    good_id = "DOC-026"
+    _write_story(project, good_id)
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "add story")
+
+    bad_keyed_id = "; rm -rf /"
+    bad_mirror_id = "../../etc"
+    stale_set_at = "2020-01-01T00:00:00Z"
+    _write_state(
+        project,
+        {
+            "current_stories": {bad_keyed_id: {"id": bad_keyed_id, "set_at": stale_set_at}},
+            "current_story": {"id": bad_mirror_id, "set_at": stale_set_at},
+        },
+    )
+
+    diagnosis = diagnose_state(project)
+    all_ids = (
+        [o["story_id"] for o in diagnosis["orphans"]]
+        + [e["story_id"] for e in diagnosis["in_flight"]]
+        + [row[0] for row in diagnosis["status_drift"]]
+    )
+    assert bad_keyed_id not in all_ids
+    assert bad_mirror_id not in all_ids
+
+    teardown_calls: list[str] = []
+    clear_calls: list[str] = []
+
+    def _spy_teardown(pp, sid):
+        teardown_calls.append(sid)
+        return []
+
+    def _spy_clear(sid, pp):
+        clear_calls.append(sid)
+
+    monkeypatch.setattr(flex_build_mod, "_teardown_story_worktree", _spy_teardown)
+    monkeypatch.setattr(flex_build_mod, "clear_permissions_artifact", _spy_clear)
+
+    result = _run_doctor(project, "--apply")
+
+    assert result.exit_code == 0, result.output
+    assert bad_keyed_id not in teardown_calls
+    assert bad_keyed_id not in clear_calls
+    assert bad_mirror_id not in teardown_calls
+    assert bad_mirror_id not in clear_calls
+
+
+def test_status_drift_scan_never_opens_closed_phase_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Ensures 5: a file-access spy wrapping `Path.read_text` records zero
+    reads against closed phases' `.md` files during the status-drift scan,
+    given N closed phases and one open phase.
+
+    **Forbidden proxy check**: reading every phase file and discarding
+    closed ones from the result is not acceptable — the scoping must select
+    which files to open *before* opening them (this is what actually bounds
+    the SessionStart hook's cost as project history accumulates).
+    """
+    project = _make_project(tmp_path)
+    closed_refs = ["95", "96", "97"]
+    open_ref = "98"
+
+    for ref in closed_refs:
+        sid = f"DOC-1{ref}"
+        _write_story(project, sid, phase=ref, status="complete")
+        _write_phase_doc_std(project, ref, [(sid, "Some story", "complete")])
+
+    open_sid = "DOC-198"
+    _write_story(project, open_sid, phase=open_ref, status="complete")
+    _write_phase_doc_std(project, open_ref, [(open_sid, "Some story", "planned")])
+
+    index_rows = [(ref, "complete") for ref in closed_refs] + [(open_ref, "active")]
+    _write_phase_index(project, index_rows)
+    _git(project, "add", ".")
+    _git(project, "commit", "-q", "-m", "closed+open phases for file-access spy")
+
+    closed_paths = {
+        (project / "docs" / "phases" / f"phase-{ref}.md").resolve() for ref in closed_refs
+    }
+    read_paths: list[Path] = []
+    real_read_text = Path.read_text
+
+    def _spy_read_text(self, *args, **kwargs):
+        read_paths.append(self.resolve())
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _spy_read_text)
+
+    diagnosis = diagnose_state(project)
+
+    opened_closed = closed_paths & set(read_paths)
+    assert not opened_closed, f"closed-phase files opened: {opened_closed}"
+    assert (open_sid, "complete", "planned") in diagnosis["status_drift"]

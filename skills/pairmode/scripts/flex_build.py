@@ -198,6 +198,14 @@ def _clear_active_story(project_path: Path, story_id: str) -> None:
 
 _STORY_ID_RE = re.compile(r"^[A-Z][A-Z0-9_]*-\d{3}$")
 
+# INFRA-445: the closed-status vocabulary a story's own frontmatter `status:`
+# (or a phase doc's Stories-table Status cell for it) must be in before that
+# story counts as "closed" history rather than live/open work. Distinct from
+# `index_integrity.is_phase_inactive`'s narrower phase-level set
+# (`complete`/`deferred`/`backlog`, no `merged`) — that one classifies a
+# *phase row* in `docs/phases/index.md`; this one classifies a *story*.
+_STORY_CLOSED_STATUSES = {"complete", "merged", "deferred", "backlog"}
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -2567,8 +2575,78 @@ def _format_age_hours(set_at: "str | None") -> str:
 
 
 # ---------------------------------------------------------------------------
-# doctor-state (INFRA-442, CER-236/CER-237/CER-238)
+# doctor-state (INFRA-442, CER-236/CER-237/CER-238; scoping fix INFRA-445)
 # ---------------------------------------------------------------------------
+
+
+def _active_phase_file_allowlist(project_path: Path) -> "set[Path] | None":
+    """Return the set of ``docs/phases/phase-<ref>.md`` paths whose index row
+    is not phase-closed, or ``None`` when ``docs/phases/index.md`` itself is
+    absent (no positive signal to scope by — every phase file stays eligible,
+    the pre-INFRA-445 default).
+
+    Reuses `_active_phase_candidates` (the same single index-walk
+    `resolve_current_phase`/`record-checkpoint-step` already rely on,
+    INFRA-445 Instructions #1/#2) rather than re-parsing
+    ``docs/phases/index.md`` a second time. That function already excludes
+    phase-inactive rows (`index_integrity.is_phase_inactive`:
+    complete/deferred/backlog, plus the `complete`-prefix guard) and rows
+    with no existing phase file — so building this allow-list costs one
+    `index.md` read plus a `.exists()` stat per row, never a `read_text()`
+    of any phase doc itself.
+    """
+    index_path = project_path / "docs" / "phases" / "index.md"
+    if not index_path.exists():
+        return None
+    try:
+        candidates = _active_phase_candidates(project_path)
+    except Exception:  # noqa: BLE001
+        return None
+    phases_dir = project_path / "docs" / "phases"
+    return {phases_dir / f"phase-{ref}.md" for ref, _status in candidates}
+
+
+def _is_closed_history_orphan(
+    story_id: str,
+    project_path: Path,
+    phases_dir: Path,
+    phase_allowlist: "set[Path]",
+) -> bool:
+    """Return True when *story_id* is closed history, not a live orphan
+    (INFRA-445 Ensures 1/3).
+
+    Requires **both**: this story's own frontmatter `status:` is in
+    `_STORY_CLOSED_STATUSES`, and its frontmatter `phase:` field names a
+    phase doc that is not in *phase_allowlist* (i.e. `docs/phases/index.md`
+    marks that phase closed). Any missing piece of that evidence — no story
+    file, unreadable frontmatter, no `status:`, no `phase:` field, an own
+    status that is still open, or a phase not found in `index.md` at all —
+    returns False, leaving the candidate classified exactly as before this
+    story (never a false-positive exclusion).
+    """
+    try:
+        story_path = _story_path(story_id, project_path)
+    except ValueError:
+        return False
+    if not story_path.exists():
+        return False
+    try:
+        fm = _read_story_frontmatter(story_path)
+    except Exception:  # noqa: BLE001
+        return False
+
+    status_raw = fm.get("status")
+    own_status = str(status_raw).strip().lower() if status_raw else ""
+    if own_status not in _STORY_CLOSED_STATUSES:
+        return False
+
+    phase_raw = fm.get("phase")
+    phase_ref = str(phase_raw).strip() if phase_raw else ""
+    if not phase_ref:
+        return False
+
+    phase_path = phases_dir / f"phase-{phase_ref}.md"
+    return phase_path not in phase_allowlist
 
 
 def diagnose_state(
@@ -2613,6 +2691,28 @@ def diagnose_state(
     Returns empty lists (never raises) when `.pairmode-worktrees/`,
     `.companion/`, `docs/phases/permissions/`, or `docs/stories/` are
     absent.
+
+    **Active-phase scoping (INFRA-445).** Both classifications below are
+    scoped by `_active_phase_file_allowlist`, derived from
+    `docs/phases/index.md`'s own Phase-table Status column via the same
+    `_active_phase_candidates` walk `resolve_current_phase` already relies
+    on — never a second, parallel index parse. When `index.md` is absent
+    the allow-list is `None` (no restriction: pre-INFRA-445 behaviour,
+    unchanged). The scoping only ever *narrows* what counts as closed
+    history; it never changes classification for a story/phase this
+    project's `index.md` does not affirmatively mark closed:
+
+    - ``status_drift``: the ``docs/phases/*.md`` glob is filtered against
+      the allow-list *before* any phase file is opened — a phase whose
+      index row is complete/deferred/backlog is never `read_text()`'d, so
+      the scan's cost is bounded by open-phase count, not total history.
+    - ``orphans``: a would-be orphan candidate is only ever excluded when
+      its own story frontmatter `status:` is itself closed
+      (`_STORY_CLOSED_STATUSES`) **and** its `phase:` frontmatter field
+      names a phase whose index row is not on the allow-list. A candidate
+      whose own status is still open, or whose phase is unresolvable (no
+      story file, no `phase:` field, or no `index.md` at all), is
+      classified exactly as before this story.
     """
     cutoff = max_age_hours if max_age_hours is not None else STATE_STORY_MAX_AGE_HOURS
     companion_dir = project_path / ".companion"
@@ -2634,6 +2734,10 @@ def diagnose_state(
     keyed_empty = not keyed
     mirror = state.get("current_story")
     mirror_id = mirror.get("id") if isinstance(mirror, dict) else None
+    if mirror_id is not None and not (
+        isinstance(mirror_id, str) and _STORY_ID_RE.match(mirror_id)
+    ):
+        mirror_id = None
 
     perm_dir = project_path / "docs" / "phases" / "permissions"
     perm_ids: set[str] = set()
@@ -2650,9 +2754,19 @@ def diagnose_state(
             if is_file and entry.suffix == ".json" and _STORY_ID_RE.match(entry.stem):
                 perm_ids.add(entry.stem)
 
-    candidate_ids: set[str] = set(claimed) | set(keyed.keys()) | perm_ids
+    # INFRA-445 Ensures 4: every one of the four candidate-ID sources is
+    # validated through `_STORY_ID_RE` at the point they are unioned — not
+    # deep inside classification — so a malformed `current_stories` key
+    # (`claimed_story_ids()` and `perm_ids` already validate themselves
+    # above) can never reach `orphans`/`in_flight`/`status_drift` nor, under
+    # `--apply`, `_teardown_story_worktree`/`clear_permissions_artifact`.
+    valid_keyed_ids = {sid for sid in keyed.keys() if _STORY_ID_RE.match(sid)}
+    candidate_ids: set[str] = set(claimed) | valid_keyed_ids | perm_ids
     if mirror_id:
         candidate_ids.add(mirror_id)
+
+    phase_allowlist = _active_phase_file_allowlist(project_path)
+    phases_dir = project_path / "docs" / "phases"
 
     orphans: list[dict] = []
     in_flight: list[dict] = []
@@ -2686,6 +2800,17 @@ def diagnose_state(
         # (`clear_current_story`'s own re-point/removal contract).
         mirror_only = mirror_names and keyed_empty and not has_stale_stamp
 
+        # INFRA-445 Ensures 1/3: exclude only when a positive closure signal
+        # exists on *both* axes — this story's own frontmatter status is
+        # itself closed, and its phase is confirmed closed by
+        # `docs/phases/index.md`. Absent either signal (no index.md, no
+        # story file, no `phase:` field, or an own status not in
+        # `_STORY_CLOSED_STATUSES`), classification is unchanged.
+        if phase_allowlist is not None and _is_closed_history_orphan(
+            story_id, project_path, phases_dir, phase_allowlist
+        ):
+            continue
+
         orphans.append(
             {
                 "story_id": story_id,
@@ -2698,12 +2823,13 @@ def diagnose_state(
         )
 
     status_drift: list[tuple[str, str, str]] = []
-    phases_dir = project_path / "docs" / "phases"
     if phases_dir.is_dir():
         try:
             phase_files = sorted(phases_dir.glob("*.md"))
         except OSError:
             phase_files = []
+        if phase_allowlist is not None:
+            phase_files = [p for p in phase_files if p in phase_allowlist]
         for phase_path in phase_files:
             try:
                 phase_text = phase_path.read_text(encoding="utf-8")
