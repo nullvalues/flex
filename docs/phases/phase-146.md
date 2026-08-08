@@ -21,9 +21,10 @@ Close CER-236..239 (F1-F4): a unified doctor-state command that repairs orphaned
 
 | ID | Title | Status |
 |----|-------|--------|
-| INFRA-442 | doctor-state command: repair orphaned stamps, worktrees, permissions artifacts; frontmatter/table cross-check | draft |
-| INFRA-443 | Session-start orphan detection surfacing doctor-state drift | draft |
-| INFRA-444 | Invalidate recorded gate verdict when story spec is revised after recording | draft |
+| INFRA-442 | doctor-state command: repair orphaned stamps, worktrees, permissions artifacts; frontmatter/table cross-check | complete |
+| INFRA-443 | Session-start orphan detection surfacing doctor-state drift | complete |
+| INFRA-444 | Invalidate recorded gate verdict when story spec is revised after recording | complete |
+| INFRA-445 | diagnose_state scoping fix: exclude closed-phase/historical orphans, validate state.json-derived story IDs, bound SessionStart scan cost | draft |
 
 ## Schema delivery
 

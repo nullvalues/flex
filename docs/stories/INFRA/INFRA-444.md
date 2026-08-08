@@ -2,7 +2,7 @@
 id: INFRA-444
 rail: INFRA
 title: Invalidate recorded gate verdict when story spec is revised after recording
-status: draft
+status: complete
 phase: "146"
 story_class: code
 auth_gated: false

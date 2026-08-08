@@ -2,7 +2,7 @@
 id: INFRA-442
 rail: INFRA
 title: doctor-state command: repair orphaned stamps, worktrees, permissions artifacts; frontmatter/table cross-check
-status: draft
+status: complete
 phase: "146"
 story_class: code
 auth_gated: false

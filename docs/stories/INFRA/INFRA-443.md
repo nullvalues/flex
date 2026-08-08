@@ -2,7 +2,7 @@
 id: INFRA-443
 rail: INFRA
 title: Session-start orphan detection surfacing doctor-state drift
-status: draft
+status: complete
 phase: "146"
 story_class: code
 auth_gated: false
